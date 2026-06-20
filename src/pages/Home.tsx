@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip } from 'antd';
-import { PlusOutlined, ImportOutlined, RightCircleOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip, message } from 'antd';
+import { PlusOutlined, ImportOutlined, RightCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { db, type QuestionBank } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ImportModal from '../components/ImportModal';
@@ -36,6 +36,23 @@ export default function Home() {
     });
     setCreateOpen(false);
     form.resetFields();
+  };
+
+  const handleDeleteBank = (bank: QuestionBank) => {
+    Modal.confirm({
+      title: `确定删除题库「${bank.name}」？`,
+      content: '该题库下的所有题目和练习记录也将被永久删除，此操作不可恢复。',
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        const id = bank.id!;
+        await db.questions.where('bankId').equals(id).delete();
+        await db.sessions.where('bankId').equals(id).delete();
+        await db.banks.delete(id);
+        message.success(`题库「${bank.name}」已删除`);
+      },
+    });
   };
 
   const formatDate = (d?: Date) => {
@@ -77,6 +94,9 @@ export default function Home() {
                     </Tooltip>,
                     <Tooltip title="开始刷题" key="practice">
                       <RightCircleOutlined onClick={(e) => { e.stopPropagation(); navigate(`/practice/${bank.id}`); }} />
+                    </Tooltip>,
+                    <Tooltip title="删除" key="delete">
+                      <DeleteOutlined onClick={(e) => { e.stopPropagation(); handleDeleteBank(bank); }} />
                     </Tooltip>,
                   ]}
                   onClick={() => navigate(`/bank/${bank.id}`)}

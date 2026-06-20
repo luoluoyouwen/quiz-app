@@ -1,12 +1,6 @@
-// ---- Shared Type (defined locally as specified) ----
+// ---- Shared Type (imported from parsers/types) ----
 
-export interface QuestionInput {
-  type: string;        // 'choice' | 'fill' | 'judge'
-  content: string;
-  options?: string;    // JSON string for choice questions
-  answer: string;
-  explanation?: string;
-}
+import type { QuestionInput } from '../parsers/types';
 
 // ---- Regex Patterns ----
 
@@ -170,6 +164,48 @@ export function autoGenerateCloze(text: string): QuestionInput[] {
   }
 
   return questions;
+}
+
+// ---- Apply Cloze to Fill Questions (Import Pipeline) ----
+//
+// For fill-type questions that don't already have a visible blank (____),
+// try to replace the answer text in the content with ____.
+// This makes txt-parsed fill questions actually display a blank during practice.
+
+export function applyClozeToFillQuestions(
+  questions: QuestionInput[]
+): QuestionInput[] {
+  return questions.map((q) => {
+    if (q.type !== 'fill') return q;
+    // Already has a blank marker
+    if (/_{3,}/.test(q.content)) return q;
+
+    const answer = q.answer.trim();
+    if (!answer) return q;
+
+    let newContent = q.content;
+
+    // Try exact match
+    if (newContent.includes(answer)) {
+      newContent = newContent.replace(answer, '____');
+    } else {
+      // Try case-insensitive
+      const lowerAnswer = answer.toLowerCase();
+      const lowerContent = newContent.toLowerCase();
+      const idx = lowerContent.indexOf(lowerAnswer);
+      if (idx !== -1) {
+        newContent =
+          newContent.slice(0, idx) +
+          '____' +
+          newContent.slice(idx + answer.length);
+      } else {
+        // Append blank placeholder at end
+        newContent = `${newContent} ____`;
+      }
+    }
+
+    return { ...q, content: newContent };
+  });
 }
 
 // ---- Generate Cloze from Existing Questions ----

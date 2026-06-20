@@ -18,6 +18,7 @@ export interface OverallStats {
     choice: TypeStats;
     fill: TypeStats;
     judge: TypeStats;
+    essay: TypeStats;
   };
 }
 
@@ -43,13 +44,14 @@ export function calculateStats(
     choice: { total: 0, correct: 0, wrong: 0, accuracy: 0 },
     fill: { total: 0, correct: 0, wrong: 0, accuracy: 0 },
     judge: { total: 0, correct: 0, wrong: 0, accuracy: 0 },
+    essay: { total: 0, correct: 0, wrong: 0, accuracy: 0 },
   };
 
   for (const answer of answers) {
     const type =
       questionTypeMap.get(answer.questionId) ??
       questions.find((q) => q.id === answer.questionId)?.type ??
-      'fill';
+      '';
 
     const ts = byType[type];
     if (ts) {

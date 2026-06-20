@@ -16,8 +16,10 @@ const { Title, Text } = Typography;
 
 const typeLabels: Record<string, { label: string; color: string }> = {
   choice: { label: '选择题', color: 'blue' },
+  multi: { label: '多选题', color: 'cyan' },
   fill: { label: '填空题', color: 'orange' },
   judge: { label: '判断题', color: 'purple' },
+  essay: { label: '简答题', color: 'green' },
 };
 
 type FilterType = 'all' | QuestionType;
@@ -83,9 +85,11 @@ export default function BankDetail() {
         return <Tag color={info.color}>{info.label}</Tag>;
       },
       filters: [
-        { text: '选择题', value: 'choice' },
+        { text: '单选题', value: 'choice' },
+        { text: '多选题', value: 'multi' },
         { text: '填空题', value: 'fill' },
         { text: '判断题', value: 'judge' },
+        { text: '简答题', value: 'essay' },
       ],
       onFilter: (val: React.Key | boolean, record: Question) => record.type === val,
     },
@@ -152,12 +156,22 @@ export default function BankDetail() {
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
+            <Statistic title="多选题" value={questions?.filter((q) => q.type === 'multi').length || 0} valueStyle={{ color: '#13c2c2' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card size="small">
             <Statistic title="填空题" value={questions?.filter((q) => q.type === 'fill').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
             <Statistic title="判断题" value={questions?.filter((q) => q.type === 'judge').length || 0} valueStyle={{ color: '#1677ff' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card size="small">
+            <Statistic title="简答题" value={questions?.filter((q) => q.type === 'essay').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
       </Row>
@@ -203,9 +217,11 @@ export default function BankDetail() {
           onChange={(key) => setFilterType(key as FilterType)}
           items={[
             { key: 'all', label: `全部 (${questions?.length || 0})` },
-            { key: 'choice', label: `选择题 (${questions?.filter((q) => q.type === 'choice').length || 0})` },
+            { key: 'choice', label: `单选题 (${questions?.filter((q) => q.type === 'choice').length || 0})` },
+            { key: 'multi', label: `多选题 (${questions?.filter((q) => q.type === 'multi').length || 0})` },
             { key: 'fill', label: `填空题 (${questions?.filter((q) => q.type === 'fill').length || 0})` },
             { key: 'judge', label: `判断题 (${questions?.filter((q) => q.type === 'judge').length || 0})` },
+            { key: 'essay', label: `简答题 (${questions?.filter((q) => q.type === 'essay').length || 0})` },
           ]}
           style={{ marginBottom: 16 }}
         />
@@ -253,8 +269,14 @@ export default function BankDetail() {
             </Radio>
             <Radio value="choice">
               <Space>
-                <Tag color="blue">选择题</Tag>
+                <Tag color="blue">单选题</Tag>
                 <Text type="secondary">{questions?.filter((q) => q.type === 'choice').length || 0} 题</Text>
+              </Space>
+            </Radio>
+            <Radio value="multi">
+              <Space>
+                <Tag color="cyan">多选题</Tag>
+                <Text type="secondary">{questions?.filter((q) => q.type === 'multi').length || 0} 题</Text>
               </Space>
             </Radio>
             <Radio value="fill">
@@ -267,6 +289,12 @@ export default function BankDetail() {
               <Space>
                 <Tag color="purple">判断题</Tag>
                 <Text type="secondary">{questions?.filter((q) => q.type === 'judge').length || 0} 题</Text>
+              </Space>
+            </Radio>
+            <Radio value="essay">
+              <Space>
+                <Tag color="green">简答题</Tag>
+                <Text type="secondary">{questions?.filter((q) => q.type === 'essay').length || 0} 题</Text>
               </Space>
             </Radio>
           </Radio.Group>

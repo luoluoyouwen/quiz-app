@@ -4,10 +4,11 @@ import { parseJson } from './json';
 import { parseCsv } from './csv';
 import { parseDocx } from './docx';
 import { parseMarkdown } from './markdown';
+import { parseExamDocx } from './exam';
 
 export type { QuestionInput };
 
-export { parseTxt, parseJson, parseCsv, parseDocx, parseMarkdown };
+export { parseTxt, parseJson, parseCsv, parseDocx, parseMarkdown, parseExamDocx };
 
 type ParserResult = { bankName: string; questions: QuestionInput[] };
 

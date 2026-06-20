@@ -64,7 +64,7 @@ export function shuffleQuestions<T extends Question>(
 
 export function filterByType(
   questions: Question[],
-  type: 'choice' | 'fill' | 'judge' | 'all'
+  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'all'
 ): Question[] {
   if (type === 'all') return [...questions];
   return questions.filter((q) => q.type === type);
@@ -128,19 +128,51 @@ export function checkAnswer(
       return { correct, expected };
     }
 
+    case 'multi': {
+      // Compare sorted letter strings (e.g. "BCD" == "BCD", "AD" == "AD")
+      const cleanInput = userAnswer.trim().toUpperCase();
+      const cleanExpected = expected.trim().toUpperCase();
+      // Reject invalid characters (only A-D allowed) — prevents "ABCDE"→"ABCD"
+      if (!/^[A-D]*$/.test(cleanInput)) {
+        return { correct: false, expected: cleanExpected };
+      }
+      const correct =
+        cleanInput.split('').sort().join('') ===
+        cleanExpected.split('').sort().join('');
+      return { correct, expected: cleanExpected };
+    }
+
     case 'judge': {
       const normalizeJudge = (s: string): string => {
         const v = s.trim().toLowerCase();
-        if (v === '对' || v === 'true' || v === 't') return 'true';
-        if (v === '错' || v === 'false' || v === 'f') return 'false';
+        if (v === '对' || v === 'true' || v === 't' || v === '√') return 'true';
+        if (v === '错' || v === 'false' || v === 'f' || v === '×') return 'false';
         return v;
       };
       const correct =
         normalizeJudge(userAnswer) === normalizeJudge(expected);
-      return { correct, expected };
+      return { correct, expected: normalizeJudge(expected) === 'true' ? '对' : '错' };
     }
 
     case 'fill': {
+      // Multi-blank: answers split by ||
+      const questionAnswers = question.answers;
+      if (questionAnswers && questionAnswers.length > 1) {
+        const userBlanks = userAnswer ? userAnswer.split('||') : [];
+        let allCorrect = true;
+        for (let i = 0; i < questionAnswers.length; i++) {
+          const blankAnswer = questionAnswers[i];
+          const userBlank = userBlanks[i] || '';
+          const nu = normalizeText(userBlank);
+          const ne = normalizeText(blankAnswer);
+          const blankCorrect = nu === ne ||
+            (nu.length >= 2 && ne.length >= 2 && (ne.includes(nu) || nu.includes(ne))) ||
+            (nu.length > 0 && ne.length > 0 && levenshteinDistance(nu, ne) <= 2);
+          if (!blankCorrect) { allCorrect = false; break; }
+        }
+        return { correct: allCorrect, expected: questionAnswers.join('、') };
+      }
+
       const nu = normalizeText(userAnswer);
       const ne = normalizeText(expected);
 
@@ -164,6 +196,14 @@ export function checkAnswer(
       return { correct: false, expected };
     }
 
+    case 'essay': {
+      // Flashcard / 背题模式: special self-assessment markers
+      if (userAnswer === '__remembered__') return { correct: true, expected };
+      if (userAnswer === '__forgot__') return { correct: false, expected };
+      // Default fallback: user answered freely, always show reference answer
+      return { correct: false, expected };
+    }
+
     default:
       return { correct: false, expected };
   }
@@ -176,7 +216,7 @@ let sessionCounter = 0;
 export function generateSession(
   bankId: number,
   questions: Question[],
-  mode: 'all' | 'choice' | 'fill' | 'judge' = 'all',
+  mode: 'all' | 'choice' | 'multi' | 'fill' | 'judge' | 'essay' = 'all',
 ): QuizSession {
   const id = `session_${Date.now()}_${++sessionCounter}`;
   const filtered = filterByType(questions, mode);
