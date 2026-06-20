@@ -1,7 +1,7 @@
 import type { QuestionInput } from './types';
 
 interface JsonQuestion {
-  type: 'choice' | 'fill' | 'judge';
+  type: 'choice' | 'fill' | 'judge' | 'essay';
   content: string;
   options?: string[];
   answer: string;
@@ -50,7 +50,7 @@ export function parseJson(data: string): { bankName: string; questions: Question
   }
 
   const questions: QuestionInput[] = questionsRaw.map((item, index) => {
-    const validTypes = ['choice', 'fill', 'judge'];
+    const validTypes = ['choice', 'fill', 'judge', 'essay'];
     const type = item.type;
     if (!validTypes.includes(type)) {
       throw new Error(

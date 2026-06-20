@@ -52,7 +52,7 @@ export function parseCsv(text: string): { bankName: string; questions: QuestionI
       throw new Error(`Row ${i + 1}: missing "answer"`);
     }
 
-    const validTypes = ['choice', 'fill', 'judge'];
+    const validTypes = ['choice', 'fill', 'judge', 'essay'];
     if (!validTypes.includes(typeRaw)) {
       throw new Error(
         `Row ${i + 1}: invalid type "${typeRaw}". Must be one of: ${validTypes.join(', ')}`,
@@ -60,7 +60,7 @@ export function parseCsv(text: string): { bankName: string; questions: QuestionI
     }
 
     const q: QuestionInput = {
-      type: typeRaw as 'choice' | 'fill' | 'judge',
+      type: typeRaw as 'choice' | 'fill' | 'judge' | 'essay',
       content,
       answer,
     };

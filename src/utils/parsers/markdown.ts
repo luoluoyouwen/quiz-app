@@ -140,9 +140,7 @@ function parseMarkdownBlock(lines: string[]): QuestionInput | null {
   const content = contentLines.join(' ').replace(/^\d+[\.\)、]\s*/, '').trim();
 
   if (!answer) {
-    throw new Error(
-      `Missing **答案:** line in markdown block:\n${cleaned.slice(0, 3).join('\n')}`,
-    );
+    return null;
   }
 
   // Judge question
@@ -168,11 +166,20 @@ function parseMarkdownBlock(lines: string[]): QuestionInput | null {
     };
   }
 
-  // Fill
+  // Essay question (long answer) or fill-in-the-blank
+  const trimmedAnswer = answer.trim();
+  if (trimmedAnswer.length > 15) {
+    return {
+      type: 'essay',
+      content,
+      answer: trimmedAnswer,
+      explanation,
+    };
+  }
   return {
     type: 'fill',
     content,
-    answer: answer.trim(),
+    answer: trimmedAnswer,
     explanation,
   };
 }

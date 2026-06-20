@@ -8,7 +8,7 @@ export interface QuestionBank {
   lastPracticed?: Date;
 }
 
-export type QuestionType = 'choice' | 'fill' | 'judge';
+export type QuestionType = 'choice' | 'multi' | 'fill' | 'judge' | 'essay';
 
 export interface Question {
   id?: number;
@@ -17,6 +17,7 @@ export interface Question {
   content: string;
   options?: string[]; // for choice questions: [A, B, C, D]
   answer: string;
+  answers?: string[]; // multiple answers for multi-blank fill
   explanation?: string;
 }
 

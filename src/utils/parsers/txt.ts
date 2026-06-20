@@ -37,9 +37,27 @@ export function parseTxt(text: string, nameHint?: string): { bankName: string; q
     }
   }
 
+  // Header/metadata lines to skip (common exam fields)
+  const headerPatterns = [
+    /^姓名\s*[:：]/,
+    /^部门\s*[:：]/,
+    /^学号\s*[:：]/,
+    /^日期\s*[:：]/,
+    /^分数\s*[:：]/,
+    /^年级\s*[:：]/,
+    /^班级\s*[:：]/,
+    /^编号\s*[:：]/,
+    /^考号\s*[:：]/,
+    /^专业\s*[:：]/,
+    /^学院\s*[:：]/,
+  ];
+
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
+
+    // Skip header/metadata lines
+    if (headerPatterns.some((p) => p.test(line))) continue;
 
     // Separator line ends a question block
     if (/^---{3,}$/.test(line) || /^___+$/.test(line)) {
@@ -109,9 +127,7 @@ function parseBlock(lines: string[]): QuestionInput | null {
   const contentLines = answerIdx >= 0 ? cleaned.slice(0, answerIdx) : cleaned;
 
   if (!answer) {
-    throw new Error(
-      `Missing 答案: line in block:\n${cleaned.join('\n')}`,
-    );
+    return null;
   }
 
   // Detect type and parse
@@ -142,12 +158,21 @@ function parseBlock(lines: string[]): QuestionInput | null {
     };
   }
 
-  // Fill-in-the-blank question
+  // Essay question (long answer) or fill-in-the-blank
   const content = contentLines.map((l) => l.replace(/^\d+[\.\)、]\s*/, '').trim()).join(' ');
+  const trimmedAnswer = answer.trim();
+  if (trimmedAnswer.length > 15) {
+    return {
+      type: 'essay',
+      content,
+      answer: trimmedAnswer,
+      explanation,
+    };
+  }
   return {
     type: 'fill',
     content,
-    answer: answer.trim(),
+    answer: trimmedAnswer,
     explanation,
   };
 }

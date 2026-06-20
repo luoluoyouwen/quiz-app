@@ -7,6 +7,7 @@ import {
 import Home from './pages/Home';
 import BankDetail from './pages/BankDetail';
 import Practice from './pages/Practice';
+import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -78,6 +79,7 @@ function AppLayout() {
             <Route path="/practice/:bankId" element={<Practice />} />
           </Routes>
         </Content>
+        <PwaUpdatePrompt />
       </Layout>
     </Layout>
   );
