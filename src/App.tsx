@@ -11,6 +11,7 @@ import Home from './pages/Home';
 import BankDetail from './pages/BankDetail';
 import Practice from './pages/Practice';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -85,11 +86,13 @@ function AppLayout() {
           />
         </Header>
         <Content style={{ background: contentBg, minHeight: 'calc(100vh - 48px)' }}>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/bank/:id" element={<BankDetail />} />
-            <Route path="/practice/:bankId" element={<Practice />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/bank/:id" element={<BankDetail />} />
+              <Route path="/practice/:bankId" element={<Practice />} />
+            </Routes>
+          </ErrorBoundary>
         </Content>
         <PwaUpdatePrompt />
       </Layout>

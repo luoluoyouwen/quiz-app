@@ -12,9 +12,29 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.1.5';
+export const APP_VERSION = '1.2.1';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '1.2.1',
+    date: '2026-06-21',
+    title: '修复：选项乱序导致练习页白屏崩溃',
+    changes: [
+      '修复 autoAdvanceTimer hooks 写在 early return 之后导致的 React error #310（最大更新深度）',
+      '新增 ErrorBoundary 组件，防止白屏，出错时显示错误信息和刷新按钮',
+      '新功能测试覆盖：pickRandomQuestions（7 条）+ 选项乱序核心逻辑（4 条），共 121 条测试',
+    ],
+  },
+  {
+    version: '1.2.0',
+    date: '2026-06-21',
+    title: '答对自动下一题 / 随机抽题 / 选项乱序',
+    changes: [
+      '答对自动下一题：提交正确后 1.5s 自动跳转，答错不跳，背题模式不启用',
+      '随机抽题：练习弹窗新增可选输入框，指定抽取 N 题练习',
+      '选项乱序：每次进入练习，选择题选项顺序随机打乱，判题过原始答案映射',
+    ],
+  },
   {
     version: '1.1.5',
     date: '2026-06-21',
