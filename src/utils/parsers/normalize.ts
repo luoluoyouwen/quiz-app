@@ -177,67 +177,100 @@ export async function normalizeText(
 ): Promise<string> {
   if (!raw || raw.trim().length === 0) return raw;
 
-  // 生产构建守卫：AI 格式整理仅限本地开发环境使用
-  // 避免 API key 在公开部署站点被滥用
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.PROD) {
-    return raw;
-  }
+  // 部署版走 CF Pages Function 代理（key 在服务器端）
+  const proxyUrl = (
+    typeof import.meta !== 'undefined' &&
+    (import.meta as any).env?.VITE_AI_NORMALIZE_PROXY
+  ) || '';
+  const useProxy = !!proxyUrl;
 
-  const apiKey = resolveApiKey(options.apiKey);
-  if (!apiKey) {
-    console.warn('[normalizeText] No API key configured — returning original text');
-    return raw;
-  }
-
-  // Auto-detect provider from key
-  const baseUrl = options.baseUrl ?? (apiKey.startsWith('sk-or-v1-')
-    ? 'https://openrouter.ai/api/v1'
-    : 'https://api.deepseek.com');
-  const model = options.model ?? (apiKey.startsWith('sk-or-v1-')
-    ? 'deepseek/deepseek-chat'
-    : 'deepseek-chat');
-  const fallback = options.fallbackSilently ?? true;
-
-  try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: raw },
-        ],
-        temperature: 0.05,
-        max_tokens: Math.min(raw.length * 2, 32000),
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      console.error(`[normalizeText] API error ${response.status}: ${body.slice(0, 200)}`);
-      return fallback ? raw : Promise.reject(new Error(`API error ${response.status}`));
-    }
-
-    const json: { choices?: { message?: { content?: string } }[] } = await response.json();
-    const result = json?.choices?.[0]?.message?.content;
-
-    if (!result || result.trim().length === 0) {
-      console.warn('[normalizeText] Empty AI response — using original text');
+  if (!useProxy) {
+    const apiKey = resolveApiKey(options.apiKey);
+    if (!apiKey) {
+      console.warn('[normalizeText] No API key configured — returning original text');
       return raw;
     }
 
-    return result
-      .replace(/^```[a-z]*\n?/i, '')
-      .replace(/\n```\s*$/, '')
-      .trim();
+    // ── 直接模式（本地开发）──
+    const baseUrl = options.baseUrl ?? (apiKey.startsWith('sk-or-v1-')
+      ? 'https://openrouter.ai/api/v1'
+      : 'https://api.deepseek.com');
+    const model = options.model ?? (apiKey.startsWith('sk-or-v1-')
+      ? 'deepseek/deepseek-chat'
+      : 'deepseek-chat');
+    const fallback = options.fallbackSilently ?? true;
+
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(buildRequestBody(raw, model)),
+        signal: AbortSignal.timeout(60_000),
+      });
+      return handleResponse(response, raw, fallback);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[normalizeText] Failed: ${msg}`);
+      return fallback ? raw : Promise.reject(err);
+    }
+  }
+
+  // ── 代理模式（部署版）──
+  const proxyFallback = options.fallbackSilently ?? true;
+  try {
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildRequestBody(raw, 'deepseek-chat')),
+      signal: AbortSignal.timeout(65_000),
+    });
+    return handleResponse(response, raw, proxyFallback);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[normalizeText] Failed: ${msg}`);
-    return fallback ? raw : Promise.reject(err);
+    console.error(`[normalizeText] Proxy failed: ${msg}`);
+    return proxyFallback ? raw : Promise.reject(err);
   }
+}
+
+/** Build the request body shared by direct and proxy mode */
+function buildRequestBody(raw: string, model: string) {
+  return {
+    model,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: raw },
+    ],
+    temperature: 0.05,
+    max_tokens: Math.min(raw.length * 2, 32000),
+  };
+}
+
+/** Parse the API response, handling the common logic */
+async function handleResponse(
+  response: Response,
+  raw: string,
+  fallback: boolean,
+): Promise<string> {
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    console.error(`[normalizeText] API error ${response.status}: ${body.slice(0, 200)}`);
+    if (fallback) return raw;
+    throw new Error(`API error ${response.status}`);
+  }
+
+  const json: { choices?: { message?: { content?: string } }[] } = await response.json();
+  const result = json?.choices?.[0]?.message?.content;
+
+  if (!result || result.trim().length === 0) {
+    console.warn('[normalizeText] Empty AI response — using original text');
+    return raw;
+  }
+
+  return result
+    .replace(/^```[a-z]*\n?/i, '')
+    .replace(/\n```\s*$/, '')
+    .trim();
 }
