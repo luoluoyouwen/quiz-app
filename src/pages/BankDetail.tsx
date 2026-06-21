@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Row, Col, Table, Button, Modal, Input, Typography, Tag, Space, Statistic,
+  Card, Row, Col, Table, Button, Modal, Input, InputNumber, Typography, Tag, Space, Statistic,
   Radio, message, Empty, Popconfirm, Tabs,
 } from 'antd';
 import {
@@ -12,6 +12,7 @@ import { db, type Question, type QuestionType } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ImportModal from '../components/ImportModal';
 import QuestionCard from '../components/QuestionCard';
+import { pickRandomQuestions } from '../utils/quiz/engine';
 
 const { Title, Text } = Typography;
 
@@ -33,6 +34,7 @@ export default function BankDetail() {
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [practiceOpen, setPracticeOpen] = useState(false);
   const [practiceMode, setPracticeMode] = useState<FilterType>('all');
+  const [randomCount, setRandomCount] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -96,7 +98,21 @@ export default function BankDetail() {
 
   const handleStartPractice = () => {
     setPracticeOpen(false);
-    navigate(`/practice/${bankId}`, { state: { type: practiceMode } });
+    setRandomCount(0);
+
+    // Filter by type first
+    const filtered = practiceMode === 'all'
+      ? (questions || [])
+      : (questions || []).filter((q) => q.type === practiceMode);
+
+    if (randomCount > 0 && randomCount < filtered.length) {
+      // 随机抽题：抽 N 题
+      const picked = pickRandomQuestions(filtered, randomCount);
+      const ids = picked.map((q) => q.id).filter(Boolean) as number[];
+      navigate(`/practice/${bankId}`, { state: { type: practiceMode, questionIds: ids } });
+    } else {
+      navigate(`/practice/${bankId}`, { state: { type: practiceMode } });
+    }
   };
 
   const tableColumns = [
@@ -387,6 +403,20 @@ export default function BankDetail() {
               </Space>
             </Radio>
           </Radio.Group>
+
+          {/* 随机抽题 */}
+          <div style={{ marginTop: 20 }}>
+            <Text strong>随机抽题（可选）:</Text>
+            <InputNumber
+              min={0}
+              max={questions?.length || 0}
+              value={randomCount}
+              onChange={(v) => setRandomCount(v || 0)}
+              style={{ width: '100%', marginTop: 8 }}
+              placeholder="留空或填 0 则练习全部题目"
+              addonAfter="题"
+            />
+          </div>
         </div>
       </Modal>
 

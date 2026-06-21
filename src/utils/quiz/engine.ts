@@ -70,6 +70,17 @@ export function filterByType(
   return questions.filter((q) => q.type === type);
 }
 
+// ---- Random Pick N Questions ----
+
+export function pickRandomQuestions<T extends Question>(
+  questions: T[],
+  count: number,
+  seed?: number,
+): T[] {
+  const shuffled = shuffleQuestions(questions, seed);
+  return shuffled.slice(0, Math.min(count, shuffled.length));
+}
+
 // ---- Answer Normalisation ----
 
 function normalizeText(text: string): string {
