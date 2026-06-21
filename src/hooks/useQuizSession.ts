@@ -13,6 +13,7 @@ export interface UseQuizSessionReturn {
   answerTime: Record<number, number>;
   totalQuestions: number;
   currentQuestion: Question | null;
+  shuffledOrders: Record<number, number[]>;  // questionId → shuffled option indices
   handleAnswer: (value: string) => void;
   handleSubmit: () => void;
   handleNext: () => void;
@@ -35,6 +36,7 @@ export function useQuizSession(
   const [sessionDone, setSessionDone] = useState(false);
   const [startTime] = useState(Date.now());
   const [answerTime, setAnswerTime] = useState<Record<number, number>>({});
+  const [shuffledOrders, setShuffledOrders] = useState<Record<number, number[]>>({});
   const questionStartRef = useRef(Date.now());
   const savedRef = useRef(false);
   const sessionIdRef = useRef<number | null>(null);
@@ -98,6 +100,19 @@ export function useQuizSession(
 
     setSessionDone(false);
     setAnswerTime({});
+    // 选项乱序：为每道选择题生成打乱索引
+    const orders: Record<number, number[]> = {};
+    for (const q of quizSession.questions) {
+      if ((q.type === 'choice' || q.type === 'multi') && q.options && q.options.length > 0 && q.id !== undefined) {
+        const indices = q.options.map((_, i) => i);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        orders[q.id] = indices;
+      }
+    }
+    setShuffledOrders(orders);
     questionStartRef.current = Date.now();
   }, [allQuestions, bankId, typeParam, questionIds, resumeState]);
 
@@ -186,6 +201,19 @@ export function useQuizSession(
     setSubmitted({});
     setSessionDone(false);
     setAnswerTime({});
+    // 重新生成选项乱序
+    const orders: Record<number, number[]> = {};
+    for (const q of quizSession.questions) {
+      if ((q.type === 'choice' || q.type === 'multi') && q.options && q.options.length > 0 && q.id !== undefined) {
+        const indices = q.options.map((_, i) => i);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        orders[q.id] = indices;
+      }
+    }
+    setShuffledOrders(orders);
     questionStartRef.current = Date.now();
   };
 
@@ -198,6 +226,7 @@ export function useQuizSession(
     answerTime,
     totalQuestions,
     currentQuestion,
+    shuffledOrders,
     handleAnswer,
     handleSubmit,
     handleNext,
