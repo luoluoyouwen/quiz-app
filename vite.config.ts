@@ -10,6 +10,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: '.',
+      filename: 'sw-custom.js',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {

@@ -17,6 +17,7 @@ const typeLabels: Record<string, { label: string; color: string }> = {
   fill: { label: '填空题', color: 'orange' },
   judge: { label: '判断题', color: 'purple' },
   essay: { label: '简答题', color: 'green' },
+  nofill: { label: '无空填空题', color: 'gold' },
 };
 
 export default function QuestionCard({ question, showAnswer, userAnswer, isCorrect }: QuestionCardProps) {

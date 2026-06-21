@@ -174,6 +174,11 @@ export default function BankDetail() {
             <Statistic title="简答题" value={questions?.filter((q) => q.type === 'essay').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
+        <Col xs={12} sm={6}>
+          <Card size="small">
+            <Statistic title="无空填空题" value={questions?.filter((q) => q.type === 'nofill').length || 0} valueStyle={{ color: '#faad14' }} />
+          </Card>
+        </Col>
       </Row>
 
       {/* Practice Stats */}
@@ -222,6 +227,7 @@ export default function BankDetail() {
             { key: 'fill', label: `填空题 (${questions?.filter((q) => q.type === 'fill').length || 0})` },
             { key: 'judge', label: `判断题 (${questions?.filter((q) => q.type === 'judge').length || 0})` },
             { key: 'essay', label: `简答题 (${questions?.filter((q) => q.type === 'essay').length || 0})` },
+            { key: 'nofill', label: `无空填空题 (${questions?.filter((q) => q.type === 'nofill').length || 0})` },
           ]}
           style={{ marginBottom: 16 }}
         />
@@ -295,6 +301,12 @@ export default function BankDetail() {
               <Space>
                 <Tag color="green">简答题</Tag>
                 <Text type="secondary">{questions?.filter((q) => q.type === 'essay').length || 0} 题</Text>
+              </Space>
+            </Radio>
+            <Radio value="nofill">
+              <Space>
+                <Tag color="gold">无空填空题</Tag>
+                <Text type="secondary">{questions?.filter((q) => q.type === 'nofill').length || 0} 题</Text>
               </Space>
             </Radio>
           </Radio.Group>

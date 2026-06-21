@@ -11,7 +11,7 @@
 import type { QuestionInput } from '../parsers/types';
 
 interface ParsedBlock {
-  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay';
+  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'nofill';
   content: string;
   options?: string[];
   answer: string;
@@ -29,8 +29,13 @@ const SECTION_PATTERNS: Record<string, 'choice' | 'multi' | 'fill' | 'judge' | '
 };
 
 function detectSection(line: string): string | null {
+  // Only match actual section headers like "一 填空题", "二 单选题", etc.
+  // NOT arbitrary text that happens to contain "判断" etc. in the middle.
+  const headerMatch = line.match(/^[一二三四五]\s+(.+?)$/);
+  if (!headerMatch) return null;
+  const sectionName = headerMatch[1];
   for (const [key, value] of Object.entries(SECTION_PATTERNS)) {
-    if (line.includes(key)) return value;
+    if (sectionName.includes(key)) return value;
   }
   return null;
 }
@@ -67,54 +72,138 @@ function tryParseChoice(line: string): ParsedBlock | null {
 // ── Fill question: extract answers between 3+ spaces ──
 
 function tryParseFill(line: string): ParsedBlock | null {
-  // Must have at least one segment of 2+ spaces
-  if (!/\s{2,}/.test(line)) return null;
+  // ── Try 2+ space delimiters (primary) ──
+  if (/\s{2,}/.test(line)) {
+    const parts = line.split(/\s{2,}|(?<=及|与|和|或)\s/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const result = extractFillAnswers(parts);
+      if (result) return result;
+    }
+  }
 
-  // Extract text segments separated by 2+ spaces
-  const parts = line.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
-  if (parts.length < 2) return null;
+  // ── Single-space fill fallback: detect "prefix answer suffix" patterns ──
+  // Match terms bounded by single spaces where the adjacent chars aren't punctuation
+  // (avoids matching enumeration like "氮气 、氢气")
+  type Span = { term: string; start: number; end: number };
+  const spans: Span[] = [];
+  // Scan char by char to find single-space bounded terms
+  for (let pos = 0; pos < line.length; pos++) {
+    // Find start of a single-space run
+    if (line[pos] === ' ' || line[pos] === '\u3000') {
+      const spaceStart = pos;
+      while (pos < line.length && (line[pos] === ' ' || line[pos] === '\u3000')) pos++;
+      const spaceLen = pos - spaceStart;
+      if (spaceLen !== 1) continue; // single space only
+      const before = spaceStart > 0 ? line[spaceStart - 1] : '';
+      // Find end of term
+      const termStart = pos;
+      while (pos < line.length && line[pos] !== ' ' && line[pos] !== '\u3000') pos++;
+      const term = line.substring(termStart, pos);
+      // Check trailing space
+      if (pos >= line.length || (line[pos] !== ' ' && line[pos] !== '\u3000')) continue;
+      // Skip one space after the term
+      pos++;
+      // Valid fill blank: char before the first space must NOT be enumeration punctuation
+      // (e.g. "、氢气" is enumeration, "承 油膜不容易建立 ，会" is a fill blank)
+      const punctBefore = /^[、，。；：,.;:：、，）)\]》」』>]$/;
+      if (before && !punctBefore.test(before) && term.length > 0 && !punctBefore.test(term[0])) {
+        spans.push({ term, start: spaceStart, end: pos });
+      }
+    }
+  }
 
-  // Take segments at odd indices (1, 3, 5...) as answers.
-  // Parts[0] = question prefix, even indices = continuation text, odd indices = answers
-  const answers: string[] = [];
-  for (let idx = 1; idx < parts.length; idx += 2) {
-    let ans = parts[idx]
+  if (spans.length > 0) {
+    const answers: string[] = spans.map(s => s.term);
+    // Build content by replacing each answer span with ____
+    let content = '';
+    let lastIdx = 0;
+    for (const span of spans) {
+      content += line.substring(lastIdx, span.start);
+      content += '____';
+      lastIdx = span.end;
+    }
+    content += line.substring(lastIdx);
+    content = content.trim();
+    return { type: 'fill', content, answer: answers[0], answers };
+  }
+
+  return null;
+}
+
+// Extract fill answers from parts split by whitespace/pattern delimiters.
+// Single-pass linear scan: preserves original order, promotes "、"
+// enumeration segments (short text after Chinese enumeration comma) to answers,
+// and applies alternating content/answer pattern for the rest.
+function extractFillAnswers(parts: string[]): ParsedBlock | null {
+  const contentParts: string[] = [parts[0]];
+  const rawAnswers: string[] = [];
+
+  for (let i = 1; i < parts.length; i++) {
+    const part = parts[i];
+
+    // Check for "、" enumeration: short text after "、" is an answer continuation
+    const enumMatch = part.match(/^、\s*(.{1,7})[。]?$/);
+    const looseMatch = part.match(/^、\s(.{1,8})$/);
+
+    if (enumMatch || looseMatch) {
+      // Enumeration → answer; "、" alone stays as content separator
+      const text = (enumMatch || looseMatch)![1].trim();
+      rawAnswers.push(text);
+      contentParts.push('、');
+    } else {
+      // Alternating pattern: odd index = answer, even index = content
+      if (i % 2 === 0) {
+        contentParts.push(part);
+      } else {
+        rawAnswers.push(part);
+      }
+    }
+  }
+
+  // Clean answers
+  const cleanAnswers: string[] = [];
+  for (const ans of rawAnswers) {
+    let cleaned = ans
       .replace(/^[，、。；：,.;:：、，]+/, '')
       .replace(/[，、。；：,.;:：、，]+$/, '')
       .trim();
-    // If answer contains inner spaces, take only up to the first
-    // Chinese function word or sentence-ending context
-    ans = ans.replace(/\s+(了|的|在|是|将|会|等|和|与|及|并|或|而|且|但|如|时|后|前|中|上|下|内|外|间|为|以|从|对|把|被|让|向|往|到|于|由|遭|受|给|才|就|还|也|都|再|又|却|便|则|虽|因|所|被|把).*$/, '');
-    ans = ans.trim();
-    if (ans) answers.push(ans);
+    // Strip content after space+Chinese punctuation when followed by stop words
+    cleaned = cleaned.replace(/\s[、，]\s*[^会将]*[会将].*$/, '');
+    // Strip content after space+stop word (existing heuristic)
+    cleaned = cleaned.replace(/\s+(了|的|在|是|将|会|等|和|与|及|并|或|而|且|但|如|时|后|前|中|上|下|内|外|间|为|以|从|对|把|被|让|向|往|到|于|由|遭|受|给|才|就|还|也|都|再|又|却|便|则|虽|因|所|被|把).*$/, '');
+    cleaned = cleaned.trim();
+    if (cleaned) cleanAnswers.push(cleaned);
   }
 
-  if (answers.length === 0) return null;
+  if (cleanAnswers.length === 0) return null;
 
-  // Build content: text parts (even indices) kept, answer parts (odd indices) → ____
-  const contentParts: string[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    if (i % 2 === 0) {
-      contentParts.push(parts[i]);
-    } else {
-      contentParts.push('____');
+  // Build content: interleave contentParts with blanks, one per answer
+  const finalParts: string[] = [];
+  for (let i = 0; i < contentParts.length; i++) {
+    finalParts.push(contentParts[i]);
+    if (i < cleanAnswers.length) {
+      finalParts.push('____');
     }
   }
-  const content = contentParts.join('').trim();
+  // Extra blanks if more answers than contentParts slots
+  for (let ai = contentParts.length; ai < cleanAnswers.length; ai++) {
+    finalParts.push('____');
+  }
 
-  // Return ONE question with all answers
-  return {
-    type: 'fill',
-    content,
-    answer: answers[0],
-    answers,
-  };
+  const content = finalParts.join('').trim();
+  return { type: 'fill', content, answer: cleanAnswers[0], answers: cleanAnswers };
 }
 
 // ── Essay question ──
 
+// Pattern for answer lines that don't start with 答： but are obviously answers
+// (numbered lists like "1）text", "①text", "(1) text")
+function isAnswerStart(line: string): boolean {
+  return /^\d+[）.、]/.test(line) || /^[①-⑩]/.test(line) || /^\(\d+\)/.test(line);
+}
+
 function isQuestionLine(line: string): boolean {
-  return /[？?]$/.test(line) || /如何|怎样|哪些|什么|为什么|简述|说明$/.test(line);
+  return /[？?]$/.test(line) || /如何|怎样|哪些|什么|为什么|简述|说明|方法$|步骤$/.test(line);
 }
 
 // ── Main parser ──
@@ -169,14 +258,21 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
     }
 
     if (currentSection === 'fill') {
-      // Skip lines without blanks (informational text)
-      if (/\s{2,}/.test(line)) {
-        const q = tryParseFill(line);
-        if (q) {
-          questions.push(q);
-          i++;
-          continue;
-        }
+      const q = tryParseFill(line);
+      if (q) {
+        questions.push(q);
+        i++;
+        continue;
+      }
+      // Lines in fill section that have no fill blanks → 无空填空题 (背题 only)
+      if (line.length > 5) {
+        questions.push({
+          type: 'nofill',
+          content: line,
+          answer: '',
+        });
+        i++;
+        continue;
       }
     }
 
@@ -192,7 +288,7 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
           const optLine = lines[j];
           if (/^[A-Da-d][.、．]/.test(optLine) || /^[A-Da-d]\s/.test(optLine)) {
             // Check if this line has multiple options (e.g. "A. text        B. text")
-            const multiOpts = optLine.split(/\s{3,}/).filter(o => /^[A-Da-d][.、．]/.test(o.trim()) || /^[A-Da-d]\s/.test(o.trim()));
+            const multiOpts = optLine.split(/\t| {2,}(?=[A-Da-d][.、．])/).filter(o => /^[A-Da-d][.、．]/.test(o.trim()) || /^[A-Da-d]\s/.test(o.trim()));
             if (multiOpts.length > 1) {
               multiOpts.forEach(o => options.push(o.trim()));
             } else {
@@ -229,6 +325,10 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
         const ansLine = lines[j];
         if (ansLine.startsWith('答：') || ansLine.startsWith('答:')) {
           answerLines.push(ansLine.replace(/^答[:：]\s*/, ''));
+          j++;
+        } else if (answerLines.length === 0 && isAnswerStart(ansLine)) {
+          // Handle answers starting with numbered lists like "1）text"
+          answerLines.push(ansLine);
           j++;
         } else if (answerLines.length > 0 && !isQuestionLine(ansLine) && !detectSection(ansLine)) {
           // Continuation of answer
