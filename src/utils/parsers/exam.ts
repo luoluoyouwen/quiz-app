@@ -286,9 +286,9 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
         let j = i + 1;
         while (j < lines.length) {
           const optLine = lines[j];
-          if (/^[A-Da-d][.、．]/.test(optLine) || /^[A-Da-d]\s/.test(optLine)) {
+          if (/^[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff])/.test(optLine)) {
             // Check if this line has multiple options (e.g. "A. text        B. text")
-            const multiOpts = optLine.split(/\t| {2,}(?=[A-Da-d][.、．])/).filter(o => /^[A-Da-d][.、．]/.test(o.trim()) || /^[A-Da-d]\s/.test(o.trim()));
+            const multiOpts = optLine.split(/\t| {2,}(?=[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff]))|\s(?=[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff]))|(?=[A-Da-d][、．])/).filter(o => /^[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff])/.test(o.trim()));
             if (multiOpts.length > 1) {
               multiOpts.forEach(o => options.push(o.trim()));
             } else {
