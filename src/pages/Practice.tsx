@@ -226,6 +226,33 @@ export default function Practice() {
     handleSubmit();
   };
 
+  // ── 答对自动下一题 ──
+  const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (isSubmitted && isCorrect && !flashcardMode) {
+      autoAdvanceTimer.current = setTimeout(() => {
+        handleNext();
+      }, 1500);
+    }
+    return () => {
+      if (autoAdvanceTimer.current) {
+        clearTimeout(autoAdvanceTimer.current);
+        autoAdvanceTimer.current = null;
+      }
+    };
+  }, [isSubmitted, isCorrect, flashcardMode, handleNext, currentIndex]);
+
+  // ── 手动点击下一题时清除自动跳转定时器 ──
+  const originalHandleNext = handleNext;
+  const wrappedHandleNext = useCallback(() => {
+    if (autoAdvanceTimer.current) {
+      clearTimeout(autoAdvanceTimer.current);
+      autoAdvanceTimer.current = null;
+    }
+    originalHandleNext();
+  }, [originalHandleNext]);
+
   return (
     <div
       style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}
@@ -662,6 +689,11 @@ export default function Practice() {
               <>
                 <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 18 }} />
                 <Text strong style={{ color: 'var(--color-success)' }}>回答正确!</Text>
+                {!flashcardMode && (
+                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
+                    ⋅ 即将跳转
+                  </Text>
+                )}
               </>
             ) : (
               <>
@@ -700,7 +732,7 @@ export default function Practice() {
             </Text>
           )
         ) : isSubmitted ? (
-          <Button type="primary" size="large" onClick={handleNext} style={{ width: '100%' }}>
+          <Button type="primary" size="large" onClick={wrappedHandleNext} style={{ width: '100%' }}>
             {currentIndex < totalQuestions - 1 ? '下一题' : '查看结果'}
           </Button>
         ) : (
