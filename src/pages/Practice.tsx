@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Card, Button, Progress, Typography, Radio, Checkbox, Input, Space, Tag, Result, message, Modal,
+  Skeleton,
 } from 'antd';
 import {
   CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined, ReloadOutlined,
-  OrderedListOutlined,
+  OrderedListOutlined, FastForwardOutlined,
 } from '@ant-design/icons';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -144,8 +145,26 @@ export default function Practice() {
   const [answerRevealed, setAnswerRevealed] = useState(false);
   useEffect(() => { setAnswerRevealed(false); }, [currentIndex]);
 
-  // 背题模式 toggle — all question types show flashcard UI
+  // ── 背题模式 toggle — all question types show flashcard UI
   const [flashcardMode, setFlashcardMode] = useState(false);
+
+  // ── 练习完成后自动返回 ──
+  const autoReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cancelReturn, setCancelReturn] = useState(false);
+
+  useEffect(() => {
+    if (sessionDone && bank && !cancelReturn) {
+      autoReturnTimer.current = setTimeout(() => {
+        navigate(`/bank/${bankId}`);
+      }, 3000);
+    }
+    return () => {
+      if (autoReturnTimer.current) {
+        clearTimeout(autoReturnTimer.current);
+        autoReturnTimer.current = null;
+      }
+    };
+  }, [sessionDone, bank, cancelReturn, navigate, bankId]);
 
   // ── 答对自动下一题（hooks 必须在 early return 之前）──
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -201,10 +220,21 @@ export default function Practice() {
           title={`练习完成！正确率 ${accuracy}%`}
           subTitle={`${totalQuestions} 题，正确 ${correctCount} 题，错误 ${totalQuestions - correctCount} 题`}
           extra={
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={handleRestart}>重新刷题</Button>
-              <Button onClick={() => navigate(`/bank/${bankId}`)}>返回题库</Button>
-            </Space>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={handleRestart}>重新刷题（全部）</Button>
+                <Button icon={<FastForwardOutlined />} onClick={() => {
+                  const t = location.state as { type?: string } || {};
+                  navigate(`/practice/${bankId}`, { state: { type: t.type || 'all' } });
+                }}>再来一局</Button>
+                <Button onClick={() => navigate(`/bank/${bankId}`)}>返回题库</Button>
+              </Space>
+              {!cancelReturn && (
+                <Button type="link" size="small" onClick={() => setCancelReturn(true)} style={{ opacity: 0.6 }}>
+                  即将自动返回题库… 点击取消
+                </Button>
+              )}
+            </div>
           }
         />
         {wrongQuestions.length > 0 && (
@@ -227,7 +257,15 @@ export default function Practice() {
   // ── Loading / Empty ──
 
   if (!bank || !allQuestions || !session) {
-    return <div style={{ padding: 24 }}><Card loading /></div>;
+    return (
+      <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
+        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+        <Card><Skeleton active paragraph={{ rows: 4 }} /></Card>
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>加载中… 请稍候</Text>
+        </div>
+      </div>
+    );
   }
 
   if (totalQuestions === 0) {
