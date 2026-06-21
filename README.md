@@ -1,6 +1,6 @@
 # 刷题 App — Quiz App
 
-> 纯前端离线刷题 PWA · 化工行业题库专用 · 支持单选 / 多选 / 填空 / 判断 / 简答 · 自动挖空 · 深色模式
+> 纯前端离线刷题 PWA · 化工行业题库专用 · 支持单选 / 多选 / 填空 / 判断 / 简答 · 自动挖空 · 深色模式 · AI 格式整理
 
 ---
 
@@ -11,7 +11,7 @@
 | 📂 **多题库管理** | 创建/删除题库，数据按 `bankId` 完全隔离 |
 | 📥 **五格式导入** | .txt · .json · .csv · .docx · .md |
 | 🔢 **五类题型** | 单选题、多选题、填空题、判断题、简答题 |
-| 🤖 **AI 格式整理** | DOCX 导入时自动 AI 规整排版，兼容 tab/全角/混排/OCR 残留 |
+| 🤖 **AI 格式整理** | DOCX 导入时自动 AI 规整排版，兼容 tab/全角/混排/OCR 残留；部署版通过 [CF Pages Function](#部署) 代理调用 DeepSeek，API key 不暴露在前端 |
 | ✏️ **自动挖空** | 填空题自动将答案替换为 `____`，支持 `、` 枚举多空 |
 | 🧠 **背题模式** | 显示答案 → 自评"记住了 / 没记住" |
 | 📊 **练习统计** | 正确率、按题型聚合、薄弱点分析 |
@@ -28,22 +28,40 @@
 
 ## 快速开始
 
+### 本地开发
+
 ```bash
 npm install            # 安装依赖
 npm run dev            # 本地开发（默认 http://localhost:5173）
-npm test               # 运行全部测试（110 个用例）
 npm run build          # 构建生产版本
 npm run preview        # 预览构建产物
 ```
 
+### 环境变量
+
+| 文件 | 用途 | 是否提交 |
+|------|------|----------|
+| `.env.normalize` | 本地开发 AI 格式整理的 DeepSeek API key | ❌ `.gitignore` |
+| `.env.normalize.example` | 模板文件（含占位符） | ✅ |
+| `.env.production` | 生产构建时指定 AI 代理路径 | ✅（不含 key） |
+
 ### 部署
 
 ```bash
-# 构建后部署到任意静态托管平台
+# 构建
 npm run build
+
+# Cloudflare Pages（含 Functions 代理自动上传）
 npx wrangler pages deploy dist/
+
+# Vercel（不含 AI 代理功能）
 npx vercel --prod
 ```
+
+> **AI 格式整理在部署版需要额外配置**：
+> 1. 在 Cloudflare Pages 后台 → 设置 → 环境变量 → 添加 `AI_NORMALIZE_API_KEY`（类型选 Secret）
+> 2. 项目自带 `functions/api/ai-normalize.ts`，部署时自动上传
+> 3. 前端请求 `/api/ai-normalize`，CF Function 代理转发到 DeepSeek，key 不暴露
 
 ---
 
@@ -56,7 +74,7 @@ npx vercel --prod
 | UI | Ant Design 6 |
 | 路由 | React Router 7 |
 | 存储 | Dexie (IndexedDB) |
-| 测试 | Vitest + jsdom |
+| 后端代理 | Cloudflare Pages Functions |
 | 部署 | Cloudflare Pages / Vercel |
 
 ---
@@ -65,36 +83,57 @@ npx vercel --prod
 
 ```
 quiz-app/
-├── public/                    # 静态资源 & PWA 图标
+├── functions/                  # CF Pages Functions（AI 代理）
+│   └── api/
+│       └── ai-normalize.ts     # AI 格式整理代理端点
+├── public/                     # 静态资源 & PWA 图标
 ├── src/
 │   ├── components/
-│   │   ├── ImportModal.tsx    # 文件导入弹窗
-│   │   ├── QuestionCard.tsx   # 题目展示卡片
-│   │   └── PwaUpdatePrompt.tsx# PWA 更新提示条
+│   │   ├── ImportModal.tsx     # 文件导入弹窗
+│   │   ├── QuestionCard.tsx    # 题目展示卡片
+│   │   └── PwaUpdatePrompt.tsx # PWA 更新提示条
 │   ├── contexts/
-│   │   └── ThemeContext.tsx   # 深色模式状态管理
+│   │   └── ThemeContext.tsx    # 深色模式状态管理
 │   ├── pages/
-│   │   ├── Home.tsx           # 首页：题库列表 + 版本信息
-│   │   ├── BankDetail.tsx     # 题库详情：统计/搜索/错题/题目列表
-│   │   └── Practice.tsx       # 练习页（核心刷题界面）
+│   │   ├── Home.tsx            # 首页：题库列表 + 版本信息
+│   │   ├── BankDetail.tsx      # 题库详情：统计/搜索/错题/题目列表
+│   │   └── Practice.tsx        # 练习页（核心刷题界面）
 │   ├── hooks/
-│   │   └── useQuizSession.ts  # 刷题会话状态管理
+│   │   └── useQuizSession.ts   # 刷题会话状态管理
 │   ├── utils/
-│   │   ├── parsers/           # 5 种格式解析器 + DOCX 考试卷解析
-│   │   ├── quiz/              # 刷题引擎（判题/打乱/统计）
-│   │   ├── cloze/             # 自动挖空/智能生成填空题
-│   │   ├── themeColors.ts     # 深色模式颜色方案
-│   │   └── changelog.ts       # 版本号与更新日志
-│   ├── db.ts                  # IndexedDB 数据模型（4 张表）
-│   ├── main.tsx               # 入口 + PWA 注册
-│   └── App.tsx                # 路由 + 深色主题集成
-├── sw-custom.js               # 自定义 Service Worker（NetworkFirst）
+│   │   ├── parsers/            # 5 种格式解析器 + DOCX 考试卷解析 + AI 格式化
+│   │   ├── quiz/               # 刷题引擎（判题/打乱/统计）
+│   │   ├── cloze/              # 自动挖空/智能生成填空题
+│   │   ├── themeColors.ts      # 深色模式颜色方案
+│   │   └── changelog.ts        # 版本号与更新日志
+│   ├── db.ts                   # IndexedDB 数据模型（4 张表）
+│   ├── main.tsx                # 入口 + PWA 注册
+│   └── App.tsx                 # 路由 + 深色主题集成
+├── sw-custom.js                # 自定义 Service Worker（NetworkFirst）
 ├── docs/
-│   └── development-doc.md     # 完整开发文档
+│   └── development-doc.md      # 完整开发文档
+├── .env.production             # 生产构建环境变量（代理路径）
 ├── package.json
 ├── vite.config.ts
 └── README.md
 ```
+
+---
+
+## AI 格式整理
+
+DOCX 导入时可选调 DeepSeek API 做格式归一化，解决 tab/全角空格/混排/OCR 残留导致的解析失败。
+
+### 双模式
+
+| 模式 | 适用场景 | 原理 |
+|------|----------|------|
+| **直接模式** | 本地开发 | 前端携带 `.env.normalize` 中的 API key 直接调 DeepSeek |
+| **代理模式** | 生产部署 | 前端请求 `/api/ai-normalize` → CF Pages Function 代理（key 在服务器环境变量中） |
+
+### 失败降级
+
+AI 调用超时或失败时静默返回原文，不影响导入流程。
 
 ---
 
@@ -109,8 +148,6 @@ quiz-app/
 | 多选题 | `三 多选题` | 同上，按答案字母数自动区分为 `multi` 类型 |
 | 判断题 | `四 判断题` | 行尾 `（√）/（×）` 检测 |
 | 简答题 | `五 问答题` | 问题行 + `答：` 答案行收集 |
-
-AI 格式归一化（可选）：通过 DeepSeek API 预处理 DOCX 文本，统一 tab/空格/全角/选项排版。
 
 ---
 
