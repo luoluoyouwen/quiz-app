@@ -12,9 +12,19 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.2.1';
+export const APP_VERSION = '1.3.0';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '1.3.0',
+    date: '2026-06-21',
+    title: '新增：成绩趋势图（折线图）',
+    changes: [
+      '在题库详情页的统计区新增折线图，展示最近 20 次练习的正确率趋势',
+      '使用 Recharts 绘制，悬停显示正确数和总题数',
+      '新增 StatsChart 组件及数据处理测试（5 条）',
+    ],
+  },
   {
     version: '1.2.1',
     date: '2026-06-21',
