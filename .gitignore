@@ -50,3 +50,4 @@ public/pwa-512x512.png
 app-debug.apk
 appstore-icons/
 scripts/
+deploy-cf.sh
