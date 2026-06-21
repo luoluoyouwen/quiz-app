@@ -13,6 +13,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import ImportModal from '../components/ImportModal';
 import QuestionCard from '../components/QuestionCard';
 import { pickRandomQuestions } from '../utils/quiz/engine';
+import StatsChart from '../components/StatsChart';
 
 const { Title, Text } = Typography;
 
@@ -229,6 +230,7 @@ export default function BankDetail() {
 
       {/* Practice Stats */}
       {stats && (
+        <>
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col xs={12} sm={6}>
             <Card size="small">
@@ -251,6 +253,10 @@ export default function BankDetail() {
             </Card>
           </Col>
         </Row>
+        <Card size="small" title="成绩趋势" style={{ marginBottom: 24 }}>
+          <StatsChart sessions={sessions!} />
+        </Card>
+        </>
       )}
 
       {/* 错题重刷 — 独立横幅 */}
