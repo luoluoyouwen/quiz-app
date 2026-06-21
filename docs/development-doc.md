@@ -1,7 +1,7 @@
 # 刷题 App 开发文档
 
 > 项目名称：Quiz App  
-> 版本：1.5.0  
+> 版本：1.6.0  
 > 更新日期：2026-06-23  
 > 技术栈：React 19 + TypeScript 6 + Vite 8 + Ant Design 6 + Dexie (IndexedDB) + Cloudflare Pages Functions
 
@@ -241,7 +241,7 @@ db.version(1).stores({
 | 路径 | 页面 | 组件 | 功能 |
 |------|------|------|------|
 | `/` | 首页 | `Home.tsx` | 题库列表、创建/删除题库 |
-| `/bank/:id` | 题库详情 | `BankDetail.tsx` | 题目列表(题型筛选)、统计、导入、练习入口 |
+| `/bank/:id` | 题库详情 | `BankDetail.tsx` | 题目列表(题型筛选)、统计卡片(可点击各题型直达刷题)、导入、练习入口 |
 | `/practice/:bankId` | 练习 | `Practice.tsx` | 核心刷题界面 |
 
 路由定义在 `src/App.tsx`，使用 `react-router-dom` 的 `BrowserRouter`。
@@ -904,6 +904,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 || 2026-06-21 | 问答题"处理方法是："被当作独立题目 | `isQuestionLine` 中 `方法` 无 `$` 锚点匹配了任意包含"方法"的行 | `方法` → `方法$` 仅匹配行尾 |
 || 2026-06-21 | PWA 缓存不使用 `autoUpdate` | `vite-plugin-pwa` 的 `generateSW` 模式忽略 `registerType` | 改为 `injectManifest` + 自定义 `sw-custom.js`（NetworkFirst + skipWaiting + clientsClaim） |
 || 2026-06-21 | API key 暴露在生产 bundle 中 | `DEEPSEEK_KEY` 硬编码在 `normalize.ts` 中，Vite 构建时内联进 JS | 改为 CF Pages Function 代理模式，key 仅存服务器环境变量，bundle 中只有 `/api/ai-normalize` 路径 |
+|| 2026-06-23 | 统计卡片无法点击进入对应题型刷题 | `BankDetail` 统计卡片用纯展示 `Card`，无 onClick 处理 | 添加 `hoverable` + `cursor:pointer` + `onClick` 跳转对应题型 |
 
 ### B. 常见问题
 

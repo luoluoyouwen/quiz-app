@@ -97,6 +97,10 @@ export default function BankDetail() {
     navigate('/');
   };
 
+  const handleCardClick = (type: FilterType) => {
+    navigate(`/practice/${bankId}`, { state: { type } });
+  };
+
   const handleStartPractice = () => {
     setPracticeOpen(false);
     setRandomCount(0);
@@ -197,40 +201,40 @@ export default function BankDetail() {
         </Space>
       </div>
 
-      {/* Stats Overview */}
+      {/* Stats Overview — clickable cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('all')}>
             <Statistic title="题目总数" value={questions?.length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('choice')}>
             <Statistic title="选择题" value={questions?.filter((q) => q.type === 'choice').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('multi')}>
             <Statistic title="多选题" value={questions?.filter((q) => q.type === 'multi').length || 0} valueStyle={{ color: '#13c2c2' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('fill')}>
             <Statistic title="填空题" value={questions?.filter((q) => q.type === 'fill').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('judge')}>
             <Statistic title="判断题" value={questions?.filter((q) => q.type === 'judge').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('essay')}>
             <Statistic title="简答题" value={questions?.filter((q) => q.type === 'essay').length || 0} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('nofill')}>
             <Statistic title="无空填空题" value={questions?.filter((q) => q.type === 'nofill').length || 0} valueStyle={{ color: '#faad14' }} />
           </Card>
         </Col>
