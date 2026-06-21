@@ -14,6 +14,7 @@ export default function Home() {
   const [createOpen, setCreateOpen] = useState(false);
   const [importBankId, setImportBankId] = useState<number | undefined>(undefined);
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [form] = Form.useForm();
 
   const banks = useLiveQuery(() => db.banks.toArray());
@@ -106,7 +107,7 @@ export default function Home() {
                 <br />
                 <Text type="secondary" style={{ fontSize: 14 }}>支持单选题 / 多选题 / 填空题 / 判断题 / 简答题</Text>
                 <br />
-                <Text type="secondary">离线可用 · PWA 安装到主屏幕</Text>
+                <Text type="secondary">离线可用</Text>
               </div>
             }
             style={{ marginBottom: 24 }}
@@ -165,16 +166,16 @@ export default function Home() {
                         <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
                           {bank.description || '暂无描述'}
                         </Text>
-                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                           <Statistic
                             title="题目数"
                             value={count}
-                            valueStyle={{ fontSize: 18, fontWeight: 600 }}
+                            valueStyle={{ fontSize: 22, fontWeight: 700, color: '#1677ff' }}
                           />
                           <Statistic
                             title="上次练习"
                             value={formatDate(bank.lastPracticed)}
-                            valueStyle={{ fontSize: 13, fontWeight: 'normal' }}
+                            valueStyle={{ fontSize: 14, fontWeight: 500 }}
                           />
                         </div>
                       </>
@@ -213,14 +214,21 @@ export default function Home() {
         onClose={() => setImportBankId(undefined)}
       />
 
-      {/* 版本号 & 更新日志 */}
-      <div style={{ textAlign: 'center', padding: '24px 0 8px', opacity: 0.5 }}>
+      {/* 版本号 & 帮助 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '24px 0 8px', opacity: 0.5 }}>
         <Text
           type="secondary"
           style={{ fontSize: 12, cursor: 'pointer' }}
           onClick={() => setChangelogOpen(true)}
         >
           v{APP_VERSION}
+        </Text>
+        <Text
+          type="secondary"
+          style={{ fontSize: 12, cursor: 'pointer' }}
+          onClick={() => setHelpOpen(true)}
+        >
+          使用帮助
         </Text>
       </div>
 
@@ -254,6 +262,54 @@ export default function Home() {
             />
           </div>
         ))}
+      </Modal>
+
+      {/* 使用帮助 */}
+      <Modal
+        title={<span><QuestionCircleOutlined style={{ marginRight: 8 }} />使用帮助</span>}
+        open={helpOpen}
+        onCancel={() => setHelpOpen(false)}
+        footer={<Button onClick={() => setHelpOpen(false)}>关闭</Button>}
+        width={520}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div>
+            <Tag color="blue" style={{ marginBottom: 4 }}>1</Tag>
+            <Text strong>题库管理</Text>
+            <div style={{ marginTop: 4, paddingLeft: 28 }}>
+              <Text type="secondary">首页右上角「+」创建新题库，或直接导入 .docx 格式的考试卷。每个卡片显示题目数和上次练习时间。</Text>
+            </div>
+          </div>
+          <div>
+            <Tag color="cyan" style={{ marginBottom: 4 }}>2</Tag>
+            <Text strong>题库详情</Text>
+            <div style={{ marginTop: 4, paddingLeft: 28 }}>
+              <Text type="secondary">
+                顶部统计区查看各题型数量 + 练习趋势图。
+                「开始练习」一键开刷全部题型，齿轮图标⚙选特定题型。
+                题目列表可展开查看完整题目与答案、按题型筛选、关键词搜索。
+              </Text>
+            </div>
+          </div>
+          <div>
+            <Tag color="orange" style={{ marginBottom: 4 }}>3</Tag>
+            <Text strong>刷题 &amp; 背题</Text>
+            <div style={{ marginTop: 4, paddingLeft: 28 }}>
+              <Text type="secondary">
+                作答后点「提交答案」自动判对错，正确后 1.5s 自动跳转。
+                顶部「📖 背题」切换闪卡模式：显示答案 → 记住了 / 没记住。
+                支持左右滑动切换题目。
+              </Text>
+            </div>
+          </div>
+          <div>
+            <Tag color="gold" style={{ marginBottom: 4 }}>4</Tag>
+            <Text strong>错题 &amp; 数据</Text>
+            <div style={{ marginTop: 4, paddingLeft: 28 }}>
+              <Text type="secondary">答错的题自动记入错题本，题库详情页红色横幅可一键重刷。统计折线图展示最近 20 次练习的正确率趋势。</Text>
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   );
