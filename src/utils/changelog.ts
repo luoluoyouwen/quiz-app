@@ -12,9 +12,19 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '1.6.0',
+    date: '2026-06-23',
+    title: '体验优化：统计卡片可点击直达 / 代码清理',
+    changes: [
+      '题库详情页统计卡片可点击：点击各题型数量直接进入该题型刷题模式',
+      '点击「题目总数」进入全部题型刷题',
+      '移除 vitest jsdom 组件测试残余，精简配置',
+    ],
+  },
   {
     version: '1.5.0',
     date: '2026-06-23',
