@@ -557,12 +557,16 @@ VitePWA({
 
 | 测试文件 | 用例数 | 覆盖范围 |
 |----------|--------|----------|
-| `engine.test.ts` | 45 | 打乱、筛选、判题（5种题型+多空+非法字符+无options兼容+集成） |
+| `engine.test.ts` | 54 | 打乱、筛选、判题（5种题型+多空+非法字符+无options兼容+集成） |
 | `stats.test.ts` | 11 | 统计聚合、薄弱点分析、错题队列 |
-| `exam.test.ts` | 21 | DOCX 解析：5题型 + tab/短空格多选项 + 顿号枚举 + 连词切分 + 答案清洗 + nofill |
-| `raw_docx.integration.test.ts` | 14 | 全量数据 8 项一致性断言 + 4 个特定修复点验证 |
+| `exam.test.ts` | 37 | DOCX 解析：5题型 + tab/短空格多选项 + 顿号枚举 + 连词切分 + 答案清洗 + nofill + AI规范化位置保留 |
+| `raw_docx.integration.test.ts` | 16 | 全量数据 10 项一致性断言 + 选项前缀剥离验证 + 多空answers完整性 |
+| `QuestionCard.test.tsx` | 7 | showAnswer 显示逻辑：选择/填空/判断/简答/无空填空 |
+| `BankDetail.test.tsx` | 3 | 展开行 showAnswer 验证 + 选项前缀剥离断言 |
+| `StatsChart.test.tsx` | 5 | 数据排序/20条上限/空数据 |
+| `ThemeContext.test.tsx` | 7 | 深色模式切换/持久化/localStorage 异常处理 |
 
-总计：**91 个测试用例**（vitest）
+总计：**140 个测试用例**（vitest）
 
 ### 10.2 判题测试覆盖矩阵
 

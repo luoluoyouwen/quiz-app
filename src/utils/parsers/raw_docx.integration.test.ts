@@ -200,4 +200,30 @@ describe('raw_docx.txt full integration', () => {
     expect(q!.options![2]).toContain('二次风过大');
     expect(q!.options![3]).toContain('二次风过小');
   });
+
+  // ── Choice option prefix stripped ──
+
+  it('all choice question options have their letter prefix stripped', () => {
+    const choiceQs = result.questions.filter(q => q.type === 'choice');
+    for (const q of choiceQs) {
+      if (!q.options) continue;
+      for (const opt of q.options) {
+        // No option should start with a letter prefix like "A.", "A、", etc.
+        expect(opt).not.toMatch(/^[A-Da-d][.、．)）:：\s]/);
+      }
+    }
+  });
+
+  // ── Fill answers array completeness ──
+
+  it('every fill question with 2+ blanks has answers array matching blank count', () => {
+    const fillQs = result.questions.filter(q => q.type === 'fill');
+    for (const q of fillQs) {
+      const blanks = (q.content.match(/____/g) || []).length;
+      if (blanks >= 2) {
+        expect(q.answers).toBeDefined();
+        expect(q.answers!.length).toBe(blanks);
+      }
+    }
+  });
 });
