@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip, message, Tag, List } from 'antd';
-import { PlusOutlined, ImportOutlined, RightCircleOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip, message, Tag, List, Skeleton } from 'antd';
+import { PlusOutlined, ImportOutlined, RightCircleOutlined, DeleteOutlined, InfoCircleOutlined, BookOutlined, QuestionCircleOutlined, TrophyOutlined } from '@ant-design/icons';
 import { db, type QuestionBank } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ImportModal from '../components/ImportModal';
@@ -29,6 +29,14 @@ export default function Home() {
           return counts;
         }),
   );
+  const totalSessions = useLiveQuery(() => db.sessions.count());
+
+  const totalQuestions = useMemo(() => {
+    if (!questionCounts) return 0;
+    return Object.values(questionCounts).reduce((a, b) => a + b, 0);
+  }, [questionCounts]);
+
+  const totalPracticeCount = totalSessions ?? 0;
 
   const handleCreateBank = async (values: { name: string; description: string }) => {
     await db.banks.add({
@@ -76,13 +84,60 @@ export default function Home() {
         </Button>
       </div>
 
-      {(!banks || banks.length === 0) ? (
-        <Empty description="还没有题库，点击上方按钮创建" style={{ marginTop: 80 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            创建题库
-          </Button>
-        </Empty>
+      {/* Loading state — 骨架屏 */}
+      {banks === undefined ? (
+        <div style={{ padding: '24px 0' }}>
+          <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 24 }} />
+          <Row gutter={[16, 16]}>
+            {[1, 2, 3].map(i => (
+              <Col key={i} xs={24} sm={12} md={8} lg={6}>
+                <Card><Skeleton active /></Card>
+              </Col>
+            ))}
+          </Row>
+        </div>
+      ) : (!banks || banks.length === 0) ? (
+        <div style={{ marginTop: 80, textAlign: 'center' }}>
+          <Empty
+            image={<BookOutlined style={{ fontSize: 64, color: '#1677ff40' }} />}
+            description={
+              <div>
+                <Text strong style={{ fontSize: 16 }}>刷题 App</Text>
+                <br />
+                <Text type="secondary" style={{ fontSize: 14 }}>支持单选题 / 多选题 / 填空题 / 判断题 / 简答题</Text>
+                <br />
+                <Text type="secondary">离线可用 · PWA 安装到主屏幕</Text>
+              </div>
+            }
+            style={{ marginBottom: 24 }}
+          >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              创建第一个题库
+            </Button>
+          </Empty>
+        </div>
       ) : (
+        <>
+        {/* 首页统计 */}
+        {banks && banks.length > 0 && (
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            <Col xs={8}>
+              <Card size="small">
+                <Statistic title="题库数" value={banks.length} prefix={<BookOutlined />} valueStyle={{ fontSize: 20, color: '#1677ff' }} />
+              </Card>
+            </Col>
+            <Col xs={8}>
+              <Card size="small">
+                <Statistic title="总题数" value={totalQuestions} prefix={<QuestionCircleOutlined />} valueStyle={{ fontSize: 20, color: '#52c41a' }} />
+              </Card>
+            </Col>
+            <Col xs={8}>
+              <Card size="small">
+                <Statistic title="练习次数" value={totalPracticeCount} prefix={<TrophyOutlined />} valueStyle={{ fontSize: 20, color: '#faad14' }} />
+              </Card>
+            </Col>
+          </Row>
+        )}
         <Row gutter={[16, 16]}>
           {banks.map((bank: QuestionBank) => {
             const count = questionCounts?.[bank.id!] || 0;
@@ -130,6 +185,7 @@ export default function Home() {
             );
           })}
         </Row>
+        </>
       )}
 
       {/* Create Bank Modal */}
