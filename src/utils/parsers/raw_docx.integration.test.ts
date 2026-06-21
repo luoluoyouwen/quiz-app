@@ -16,6 +16,12 @@ import path from 'path';
 const RAW_PATH = path.resolve(__dirname, '../../../raw_docx.txt');
 
 function loadRaw(): string {
+  if (!fs.existsSync(RAW_PATH)) {
+    throw new Error(
+      'raw_docx.txt not found — this integration test requires the real exam data file. ' +
+      'Copy raw_docx.txt to the project root to run these tests.'
+    );
+  }
   return fs.readFileSync(RAW_PATH, 'utf-8');
 }
 
