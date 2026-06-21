@@ -52,6 +52,7 @@ export default function Practice() {
     userAnswers, submitted,
     totalQuestions, currentQuestion,
     handleAnswer, handleSubmit, handleNext, handlePrev, goToQuestion, handleRestart,
+    shuffledOrders,
   } = useQuizSession(bankId || '', allQuestions, typeParam, questionIds, resumeState);
 
   // Question grid / navigation
@@ -396,29 +397,36 @@ export default function Practice() {
             style={{ width: '100%' }}
           >
             <Space direction="vertical" style={{ width: '100%' }}>
-              {currentQuestion.options.map((opt, idx) => {
-                const label = String.fromCharCode(65 + idx);
-                const isOptCorrect = isSubmitted && currentQuestion.answer.toLowerCase() === label.toLowerCase();
-                const isOptWrong = isSubmitted && userAnswer.toLowerCase() === label.toLowerCase() && !isOptCorrect;
-                return (
-                  <div
-                    key={label}
-                    style={{
-                      padding: '10px 12px',
-                      border: `1px solid ${
-                        isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
-                      }`,
-                      borderRadius: 8,
-                      background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
-                      cursor: isSubmitted ? 'default' : 'pointer',
-                    }}
-                  >
-                    <Radio value={label}>
-                      <Text strong>{label}.</Text> {opt}
-                    </Radio>
-                  </div>
-                );
-              })}
+              {(() => {
+                const order = shuffledOrders?.[currentQuestion?.id ?? -1];
+                const opts = currentQuestion.options ?? [];
+                const indices = order ?? opts.map((_, i) => i);
+                return indices.map((origIdx, displayIdx) => {
+                  const displayLabel = String.fromCharCode(65 + displayIdx);
+                  const originalLabel = String.fromCharCode(65 + origIdx);
+                  const text = opts[origIdx];
+                  const isOptCorrect = isSubmitted && currentQuestion.answer.toLowerCase() === originalLabel.toLowerCase();
+                  const isOptWrong = isSubmitted && userAnswer.toLowerCase() === originalLabel.toLowerCase() && !isOptCorrect;
+                  return (
+                    <div
+                      key={originalLabel}
+                      style={{
+                        padding: '10px 12px',
+                        border: `1px solid ${
+                          isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
+                        }`,
+                        borderRadius: 8,
+                        background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
+                        cursor: isSubmitted ? 'default' : 'pointer',
+                      }}
+                    >
+                      <Radio value={originalLabel}>
+                        <Text strong>{displayLabel}.</Text> {text}
+                      </Radio>
+                    </div>
+                  );
+                });
+              })()}
             </Space>
           </Radio.Group>
         )}
@@ -434,29 +442,36 @@ export default function Practice() {
             style={{ width: '100%' }}
           >
             <Space direction="vertical" style={{ width: '100%' }}>
-              {currentQuestion.options.map((opt, idx) => {
-                const label = String.fromCharCode(65 + idx);
-                const isOptCorrect = isSubmitted && currentQuestion.answer.toUpperCase().includes(label);
-                const isOptWrong = isSubmitted && !currentQuestion.answer.toUpperCase().includes(label) && (userAnswer || '').toUpperCase().includes(label);
-                return (
-                  <div
-                    key={label}
-                    style={{
-                      padding: '10px 12px',
-                      border: `1px solid ${
-                        isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
-                      }`,
-                      borderRadius: 8,
-                      background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
-                      cursor: isSubmitted ? 'default' : 'pointer',
-                    }}
-                  >
-                    <Checkbox value={label}>
-                      <Text strong>{label}.</Text> {opt}
-                    </Checkbox>
-                  </div>
-                );
-              })}
+              {(() => {
+                const order = shuffledOrders?.[currentQuestion?.id ?? -1];
+                const opts = currentQuestion.options ?? [];
+                const indices = order ?? opts.map((_, i) => i);
+                return indices.map((origIdx, displayIdx) => {
+                  const displayLabel = String.fromCharCode(65 + displayIdx);
+                  const originalLabel = String.fromCharCode(65 + origIdx);
+                  const text = opts[origIdx];
+                  const isOptCorrect = isSubmitted && currentQuestion.answer.toUpperCase().includes(originalLabel);
+                  const isOptWrong = isSubmitted && !currentQuestion.answer.toUpperCase().includes(originalLabel) && (userAnswer || '').toUpperCase().includes(originalLabel);
+                  return (
+                    <div
+                      key={originalLabel}
+                      style={{
+                        padding: '10px 12px',
+                        border: `1px solid ${
+                          isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
+                        }`,
+                        borderRadius: 8,
+                        background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
+                        cursor: isSubmitted ? 'default' : 'pointer',
+                      }}
+                    >
+                      <Checkbox value={originalLabel}>
+                        <Text strong>{displayLabel}.</Text> {text}
+                      </Checkbox>
+                    </div>
+                  );
+                });
+              })()}
             </Space>
           </Checkbox.Group>
         )}
