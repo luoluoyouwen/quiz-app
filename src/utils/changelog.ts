@@ -12,9 +12,22 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.4.0';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '1.4.0',
+    date: '2026-06-22',
+    title: '体验打磨：首页统计 / 骨架屏 / 练习结束交互 / 页面过渡动画',
+    changes: [
+      '一键开刷：主按钮直接进全部题型练习，齿轮图标 ⚙ 保留题型选择弹窗',
+      '首页统计：有题库时顶部显示题库数 / 总题数 / 练习次数',
+      '空状态引导：无题库时展示 App 功能介绍（五题型 + 离线 + PWA）',
+      '骨架屏：首页加载时显示 3 个卡片骨架 + 顶部骨架条；练习页加载时显示骨架 + 加载提示',
+      '练习结束交互：完成后 3 秒自动返回题库详情；新增"再来一局"按钮（同题型模式）',
+      '页面过渡动画：framer-motion AnimatePresence 全页面切换，淡入 + 上移效果',
+    ],
+  },
   {
     version: '1.3.0',
     date: '2026-06-21',

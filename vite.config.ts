@@ -13,6 +13,9 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: '.',
       filename: 'sw-custom.js',
+      injectManifest: {
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
