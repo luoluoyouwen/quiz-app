@@ -15,7 +15,7 @@
 | ✏️ **自动挖空** | 填空题自动将答案替换为 `____`，支持 `、` 枚举多空 |
 | 🧠 **背题模式** | 显示答案 → 自评"记住了 / 没记住" |
 | 🚀 **一键开刷** | 主按钮直接进全部题型练习，齿轮图标选特定题型/随机抽题 |
-| 📊 **统计图表** | 练习趋势折线图，最近 20 次正确率可视化 |
+| 📊 **统计图表** | 练习趋势折线图，最近 20 次正确率可视化；统计卡片可点击直达对应题型刷题 |
 | 🔄 **页面过渡动画** | framer-motion 全场淡入+上移切换 |
 | 🏁 **练习结束交互** | 完成后自动返回，支持「再来一局」 |
 | 🔍 **题目搜索** | 实时搜索题目内容、答案、选项 |
@@ -51,14 +51,12 @@ npm run preview        # 预览构建产物
 ### 部署
 
 ```bash
-# 构建
+# 一键部署（需 CLOUDFLARE_API_TOKEN 在环境变量中）
+bash deploy-cf.sh
+
+# 或手动
 npm run build
-
-# Cloudflare Pages（含 Functions 代理自动上传）
-npx wrangler pages deploy dist/
-
-# Vercel（不含 AI 代理功能）
-npx vercel --prod
+npx wrangler pages deploy dist/ --project-name=quiz-app
 ```
 
 > **AI 格式整理在部署版需要额外配置**：

@@ -544,7 +544,7 @@ VitePWA({
 
 ### 9.3 更新流程
 
-1. 部署新版本到 Vercel
+1. 部署新版本到 Cloudflare Pages
 2. 用户打开 PWA → Service Worker 后台下载新版本
 3. 检测到更新 → 显示蓝色提示条 "🆕 新版本已发布"
 4. 用户点击"刷新" → 立即激活新版本
@@ -561,12 +561,11 @@ VitePWA({
 | `stats.test.ts` | 11 | 统计聚合、薄弱点分析、错题队列 |
 | `exam.test.ts` | 37 | DOCX 解析：5题型 + tab/短空格多选项 + 顿号枚举 + 连词切分 + 答案清洗 + nofill + AI规范化位置保留 |
 | `raw_docx.integration.test.ts` | 16 | 全量数据 10 项一致性断言 + 选项前缀剥离验证 + 多空answers完整性 |
-| `QuestionCard.test.tsx` | 7 | showAnswer 显示逻辑：选择/填空/判断/简答/无空填空 |
-| `BankDetail.test.tsx` | 3 | 展开行 showAnswer 验证 + 选项前缀剥离断言 |
+| `QuestionCard.test.tsx` | 8 | showAnswer 显示逻辑：选择/填空/判断/简答/无空填空 |
 | `StatsChart.test.tsx` | 5 | 数据排序/20条上限/空数据 |
 | `ThemeContext.test.tsx` | 7 | 深色模式切换/持久化/localStorage 异常处理 |
 
-总计：**140 个测试用例**（vitest）
+总计：**153 个测试用例**（vitest：137 单元 + 16 集成）
 
 ### 10.2 判题测试覆盖矩阵
 
@@ -652,13 +651,18 @@ npm run build      # 构建生产版本
 npm run preview    # 预览构建产物
 ```
 
-### 12.2 部署到 Vercel
+### 12.2 部署到 Cloudflare Pages
 
 ```bash
-npx vercel deploy --prod --yes
-# 或使用本地 token 认证
-npx vercel deploy --prod --token <token>
+# 一键部署（需 CLOUDFLARE_API_TOKEN 在环境变量中）
+bash deploy-cf.sh
+
+# 或手动
+npm run build
+npx wrangler pages deploy dist/ --project-name=quiz-app
 ```
+
+CF Pages Function（`functions/api/ai-normalize.ts`）在部署时自动编译上传，无需额外配置。
 
 ### 12.3 项目结构
 
@@ -688,8 +692,8 @@ quiz-app/
 │   │   │   ├── index.ts        # 格式检测路由
 │   │   │   ├── types.ts        # 共享类型
 │   │   │   ├── exam.ts         # 考试卷解析器（核心）
-│   │   │   ├── exam.test.ts    # 解析器测试
-│   │   │   ├── raw_docx.integration.test.ts  # 全量数据集成测试
+│   │   │   ├── exam.test.ts                     # 解析器测试 (37)
+│   │   │   ├── raw_docx.integration.test.ts     # 全量数据集成测试 (16)
 │   │   │   ├── txt.ts          # TXT 解析
 │   │   │   ├── json.ts         # JSON 解析
 │   │   │   ├── csv.ts          # CSV 解析
@@ -714,6 +718,8 @@ quiz-app/
 ├── sw-custom.js                # 自定义 Service Worker（injectManifest）
 ├── .env.normalize.example      # AI API key 配置模板
 ├── .env.production             # 生产构建环境变量（代理路径）
+├── .gitignore                  # 脱敏/构建产物排除规则
+├── deploy-cf.sh                # CF Pages 一键部署脚本（gitignored）
 ├── package.json
 ├── vite.config.ts
 ├── tsconfig.json
@@ -904,7 +910,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 || 2026-06-21 | 问答题"处理方法是："被当作独立题目 | `isQuestionLine` 中 `方法` 无 `$` 锚点匹配了任意包含"方法"的行 | `方法` → `方法$` 仅匹配行尾 |
 || 2026-06-21 | PWA 缓存不使用 `autoUpdate` | `vite-plugin-pwa` 的 `generateSW` 模式忽略 `registerType` | 改为 `injectManifest` + 自定义 `sw-custom.js`（NetworkFirst + skipWaiting + clientsClaim） |
 || 2026-06-21 | API key 暴露在生产 bundle 中 | `DEEPSEEK_KEY` 硬编码在 `normalize.ts` 中，Vite 构建时内联进 JS | 改为 CF Pages Function 代理模式，key 仅存服务器环境变量，bundle 中只有 `/api/ai-normalize` 路径 |
-|| 2026-06-23 | 统计卡片无法点击进入对应题型刷题 | `BankDetail` 统计卡片用纯展示 `Card`，无 onClick 处理 | 添加 `hoverable` + `cursor:pointer` + `onClick` 跳转对应题型 |
+||| 2026-06-23 | 统计卡片无法点击进入对应题型刷题 | `BankDetail` 统计卡片用纯展示 `Card`，无 onClick 处理 | 添加 `hoverable` + `cursor:pointer` + `onClick` 跳转对应题型 |
+||| 2026-06-23 | `raw_docx.txt`（真实考试数据）被 git 追踪 | 早期提交加入后未清理 | filter-branch 从全部 git 历史中抹除；测试文件添加文件缺失保护 |
+||| 2026-06-23 | `deploy-cf.sh` 未在 gitignore 中 | 新建的部署脚本未保护 | 加入 `.gitignore` |
 
 ### B. 常见问题
 
