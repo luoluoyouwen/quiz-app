@@ -166,17 +166,15 @@ export default function Home() {
                         <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
                           {bank.description || '暂无描述'}
                         </Text>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                          <Statistic
-                            title="题目数"
-                            value={count}
-                            valueStyle={{ fontSize: 22, fontWeight: 700, color: '#1677ff' }}
-                          />
-                          <Statistic
-                            title="上次练习"
-                            value={formatDate(bank.lastPracticed)}
-                            valueStyle={{ fontSize: 14, fontWeight: 500 }}
-                          />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <div style={{ flex: 1, textAlign: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: '28px' }}>{count}</div>
+                          </div>
+                          <div style={{ flex: 1, textAlign: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>上次练习</div>
+                            <div style={{ fontSize: 14, fontWeight: 500, lineHeight: '28px' }}>{formatDate(bank.lastPracticed)}</div>
+                          </div>
                         </div>
                       </>
                     }
