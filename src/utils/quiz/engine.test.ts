@@ -128,17 +128,9 @@ describe('checkAnswer - fill', () => {
     expect(checkAnswer(questions[1], '  北京！').correct).toBe(true);
   });
 
-  it('substring containment', () => {
-    expect(checkAnswer(questions[1], '北京市').correct).toBe(true);
-  });
-
-  it('Levenshtein distance ≤ 2 (fuzzy match)', () => {
-    // '长江' vs '长河': 1 substitution (江→河), distance=1
-    expect(checkAnswer(questions[5], '长河').correct).toBe(true);
-  });
-
-  it('wrong answer when distance > 2', () => {
-    // '长江' (2 chars) vs '塔里木河' (4 chars): insert 2, sub 1 = distance 3
+  it('wrong answer when not exact match', () => {
+    expect(checkAnswer(questions[1], '北京市').correct).toBe(false);
+    expect(checkAnswer(questions[5], '长河').correct).toBe(false);
     expect(checkAnswer(questions[5], '塔里木河').correct).toBe(false);
   });
 
@@ -251,8 +243,10 @@ describe('checkAnswer - fill multi-blank', () => {
   });
 
   it('fuzzy match on individual blanks', () => {
-    // Levenshtein: '气化技术' vs '气化技木' — 1 char different
-    expect(checkAnswer(q, '气化技木||净化技术').correct).toBe(true);
+    // 精确匹配: exact match required
+    expect(checkAnswer(q, '气化技术||净化技术').correct).toBe(true);
+    // 错字不算对
+    expect(checkAnswer(q, '气化技木||净化技术').correct).toBe(false);
   });
 
   it('arbitrary gibberish is wrong', () => {

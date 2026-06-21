@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Row, Col, Table, Button, Modal, Typography, Tag, Space, Statistic,
+  Card, Row, Col, Table, Button, Modal, Input, Typography, Tag, Space, Statistic,
   Radio, message, Empty, Popconfirm, Tabs,
 } from 'antd';
 import {
   DeleteOutlined, PlayCircleOutlined, InboxOutlined, ArrowLeftOutlined,
+  SearchOutlined, WarningFilled,
 } from '@ant-design/icons';
 import { db, type Question, type QuestionType } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -33,19 +34,48 @@ export default function BankDetail() {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const [practiceMode, setPracticeMode] = useState<FilterType>('all');
   const [importOpen, setImportOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const bank = useLiveQuery(() => db.banks.get(bankId));
   const questions = useLiveQuery(() => db.questions.where('bankId').equals(bankId).toArray(), [bankId]);
 
-  const sessions = useLiveQuery(() =>
-    db.sessions.where('bankId').equals(bankId).reverse().toArray(), [bankId]
+  const sessions = useLiveQuery(
+    () => db.sessions.where('bankId').equals(bankId).reverse().toArray(), [bankId]
+  );
+
+  const wrongQuestionIds = useLiveQuery(
+    async () => {
+      const bankQuestionIds = (await db.questions
+        .where('bankId').equals(bankId)
+        .toArray()).map(q => q.id!);
+      if (bankQuestionIds.length === 0) return [];
+      const bankQIdSet = new Set(bankQuestionIds);
+      const allAnswers = await db.sessionAnswers
+        .filter(sa => bankQIdSet.has(sa.questionId))
+        .toArray();
+      const wrongIds = [...new Set(
+        allAnswers.filter(sa => !sa.isCorrect).map(sa => sa.questionId)
+      )];
+      return wrongIds;
+    }, [bankId]
   );
 
   const filteredQuestions = useMemo(() => {
     if (!questions) return [];
-    if (filterType === 'all') return questions;
-    return questions.filter((q) => q.type === filterType);
-  }, [questions, filterType]);
+    let result = questions;
+    if (filterType !== 'all') {
+      result = result.filter((q) => q.type === filterType);
+    }
+    if (searchTerm.trim()) {
+      const term = searchTerm.trim().toLowerCase();
+      result = result.filter((q) =>
+        q.content.toLowerCase().includes(term) ||
+        q.answer.toLowerCase().includes(term) ||
+        q.options?.some(o => o.toLowerCase().includes(term))
+      );
+    }
+    return result;
+  }, [questions, filterType, searchTerm]);
 
   const stats = useMemo(() => {
     if (!sessions || sessions.length === 0) return null;
@@ -207,13 +237,51 @@ export default function BankDetail() {
         </Row>
       )}
 
+      {/* 错题重刷 — 独立横幅 */}
+      {wrongQuestionIds && wrongQuestionIds.length > 0 && (
+        <div style={{
+          background: 'var(--bg-warning)',
+          border: '1px solid #ffccc7',
+          borderRadius: 8,
+          padding: '12px 20px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div>
+            <Text strong style={{ color: '#cf1322', fontSize: 15 }}>
+              <WarningFilled style={{ marginRight: 8 }} />
+              你有 {wrongQuestionIds.length} 道错题待重刷
+            </Text>
+            <Text type="secondary" style={{ marginLeft: 12, fontSize: 13 }}>
+              点击按钮进入错题专属练习
+            </Text>
+          </div>
+          <Button
+            type="primary"
+            danger
+            size="large"
+            icon={<PlayCircleOutlined />}
+            onClick={() => navigate(`/practice/${bankId}`, {
+              state: { questionIds: wrongQuestionIds }
+            })}
+            style={{ fontWeight: 'bold', boxShadow: '0 2px 8px rgba(255,77,79,0.3)' }}
+          >
+            错题重刷 ({wrongQuestionIds.length})
+          </Button>
+        </div>
+      )}
+
       {/* Question List */}
       <Card
         title={`题目列表 (${filteredQuestions.length})`}
         extra={
-          <Button icon={<InboxOutlined />} onClick={() => setImportOpen(true)}>
-            导入题目
-          </Button>
+          <Space>
+            <Button icon={<InboxOutlined />} onClick={() => setImportOpen(true)}>
+              导入题目
+            </Button>
+          </Space>
         }
         style={{ marginBottom: 24 }}
       >
@@ -229,7 +297,16 @@ export default function BankDetail() {
             { key: 'essay', label: `简答题 (${questions?.filter((q) => q.type === 'essay').length || 0})` },
             { key: 'nofill', label: `无空填空题 (${questions?.filter((q) => q.type === 'nofill').length || 0})` },
           ]}
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 8 }}
+        />
+        <Input.Search
+          placeholder="搜索题目内容、答案、选项..."
+          allowClear
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          onSearch={(v) => setSearchTerm(v)}
+          style={{ marginBottom: 12, maxWidth: 400 }}
+          prefix={<SearchOutlined />}
         />
         {filteredQuestions.length > 0 ? (
           <Table

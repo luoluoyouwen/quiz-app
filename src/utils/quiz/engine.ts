@@ -70,33 +70,6 @@ export function filterByType(
   return questions.filter((q) => q.type === type);
 }
 
-// ---- Levenshtein Distance ----
-
-function levenshteinDistance(a: string, b: string): number {
-  const an = a.length;
-  const bn = b.length;
-  if (an === 0) return bn;
-  if (bn === 0) return an;
-
-  let prev = new Array<number>(bn + 1);
-  let curr = new Array<number>(bn + 1);
-  for (let j = 0; j <= bn; j++) prev[j] = j;
-
-  for (let i = 1; i <= an; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= bn; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      curr[j] = Math.min(
-        curr[j - 1] + 1,
-        prev[j] + 1,
-        prev[j - 1] + cost,
-      );
-    }
-    [prev, curr] = [curr, prev];
-  }
-  return prev[bn];
-}
-
 // ---- Answer Normalisation ----
 
 function normalizeText(text: string): string {
@@ -165,35 +138,15 @@ export function checkAnswer(
           const userBlank = userBlanks[i] || '';
           const nu = normalizeText(userBlank);
           const ne = normalizeText(blankAnswer);
-          const blankCorrect = nu === ne ||
-            (nu.length >= 2 && ne.length >= 2 && (ne.includes(nu) || nu.includes(ne))) ||
-            (nu.length > 0 && ne.length > 0 && levenshteinDistance(nu, ne) <= 2);
-          if (!blankCorrect) { allCorrect = false; break; }
+          if (nu !== ne) { allCorrect = false; break; }
         }
         return { correct: allCorrect, expected: questionAnswers.join('、') };
       }
 
+      // Single blank: exact match after normalization
       const nu = normalizeText(userAnswer);
       const ne = normalizeText(expected);
-
-      // Exact
-      if (nu === ne) return { correct: true, expected };
-
-      // Substring containment (both sides, min 2 chars)
-      if (
-        nu.length >= 2 &&
-        ne.length >= 2 &&
-        (ne.includes(nu) || nu.includes(ne))
-      ) {
-        return { correct: true, expected };
-      }
-
-      // Levenshtein distance <= 2
-      if (nu.length > 0 && ne.length > 0 && levenshteinDistance(nu, ne) <= 2) {
-        return { correct: true, expected };
-      }
-
-      return { correct: false, expected };
+      return { correct: nu === ne, expected };
     }
 
     case 'essay': {
@@ -224,9 +177,19 @@ export function generateSession(
   bankId: number,
   questions: Question[],
   mode: 'all' | 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'nofill' = 'all',
+  questionIds?: number[],
 ): QuizSession {
   const id = `session_${Date.now()}_${++sessionCounter}`;
-  const filtered = filterByType(questions, mode);
+  let filtered = filterByType(questions, mode);
+
+  // If specific question IDs provided, use those (in given order, no shuffle)
+  if (questionIds && questionIds.length > 0) {
+    const idSet = new Set(questionIds);
+    filtered = filtered.filter(q => q.id !== undefined && idSet.has(q.id));
+    // Preserve the order from questionIds
+    const orderMap = new Map(questionIds.map((id, i) => [id, i]));
+    filtered.sort((a, b) => (orderMap.get(a.id!) ?? 999) - (orderMap.get(b.id!) ?? 999));
+  }
 
   return {
     id,

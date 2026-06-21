@@ -30,7 +30,23 @@ _check*.ts
 _debug*.ts
 _find*.ts
 
-# 环境文件
-.env
-.env.local
-*.local
+# 环境变量 & 密钥
+.env*.local
+.env.normalize
+.env.cf
+
+# 真实考试数据 (含敏感题目内容)
+raw_docx.txt
+
+# 构建/生成的文件
+manifest.webmanifest
+manifest.json
+icon-192.png
+icon-512.png
+public/icons/
+public/manifest.json
+public/pwa-192x192.png
+public/pwa-512x512.png
+app-debug.apk
+appstore-icons/
+scripts/

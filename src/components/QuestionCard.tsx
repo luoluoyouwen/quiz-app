@@ -26,7 +26,7 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
   return (
     <Card
       size="small"
-      style={{ marginBottom: 12, borderLeft: isCorrect === undefined ? undefined : isCorrect ? '3px solid #52c41a' : '3px solid #ff4d4f' }}
+      style={{ marginBottom: 12, borderLeft: isCorrect === undefined ? undefined : isCorrect ? '3px solid var(--color-success)' : '3px solid var(--color-error)' }}
     >
       <div style={{ marginBottom: 8 }}>
         <Tag color={typeInfo.color}>{typeInfo.label}</Tag>
@@ -50,13 +50,13 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
             const isCorrectOpt = question.answer.toLowerCase() === label.toLowerCase();
             let style: React.CSSProperties = {};
             if (showAnswer) {
-              if (isCorrectOpt) style = { ...style, background: '#f6ffed', color: '#52c41a', fontWeight: 'bold' };
-              if (isSelected && !isCorrectOpt) style = { ...style, background: '#fff1f0', color: '#ff4d4f' };
+              if (isCorrectOpt) style = { ...style, background: 'var(--bg-success)', color: 'var(--color-success)', fontWeight: 'bold' };
+              if (isSelected && !isCorrectOpt) style = { ...style, background: 'var(--bg-error)', color: 'var(--color-error)' };
             } else if (isSelected) {
               style = { ...style, background: '#e6f4ff' };
             }
             return (
-              <div key={label} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #d9d9d9', ...style }}>
+              <div key={label} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border)', ...style }}>
                 <Text strong>{label}.</Text> {opt}
               </div>
             );
@@ -73,13 +73,13 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
             const isCorrectOpt = question.answer.toUpperCase().includes(label);
             let style: React.CSSProperties = {};
             if (showAnswer) {
-              if (isCorrectOpt) style = { ...style, background: '#f6ffed', color: '#52c41a', fontWeight: 'bold' };
-              if (isSelected && !isCorrectOpt) style = { ...style, background: '#fff1f0', color: '#ff4d4f' };
+              if (isCorrectOpt) style = { ...style, background: 'var(--bg-success)', color: 'var(--color-success)', fontWeight: 'bold' };
+              if (isSelected && !isCorrectOpt) style = { ...style, background: 'var(--bg-error)', color: 'var(--color-error)' };
             } else if (isSelected) {
               style = { ...style, background: '#e6f4ff' };
             }
             return (
-              <div key={label} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #d9d9d9', ...style }}>
+              <div key={label} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border)', ...style }}>
                 <Text strong>{label}.</Text> {opt}
               </div>
             );
@@ -87,7 +87,7 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
           {showAnswer && (
             <div style={{ marginTop: 8 }}>
               <Text strong>正确答案: </Text>
-              <Text style={{ color: '#52c41a' }}>{question.answer.split('').map(l => `${l}`).join(', ')}</Text>
+              <Text style={{ color: 'var(--color-success)' }}>{question.answer.split('').map(l => `${l}`).join(', ')}</Text>
             </div>
           )}
         </div>
@@ -96,19 +96,19 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
       {showAnswer && question.type === 'fill' && (
         <div style={{ marginTop: 8 }}>
           <Text strong>你的答案: </Text>
-          <Text style={{ color: isCorrect ? '#52c41a' : '#ff4d4f' }}>{userAnswer || '(未作答)'}</Text>
+          <Text style={{ color: isCorrect ? 'var(--color-success)' : 'var(--color-error)' }}>{userAnswer || '(未作答)'}</Text>
           {!isCorrect && question.answers && question.answers.length > 1 && (
             <>
               <br />
               <Text strong>正确: </Text>
-              <Text style={{ color: '#52c41a' }}>{question.answers.join('、')}</Text>
+              <Text style={{ color: 'var(--color-success)' }}>{question.answers.join('、')}</Text>
             </>
           )}
           {!isCorrect && (!question.answers || question.answers.length <= 1) && (
             <>
               <br />
               <Text strong>正确答案: </Text>
-              <Text style={{ color: '#52c41a' }}>{question.answer}</Text>
+              <Text style={{ color: 'var(--color-success)' }}>{question.answer}</Text>
             </>
           )}
         </div>
@@ -117,14 +117,14 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
       {showAnswer && question.type === 'judge' && (
         <div style={{ marginTop: 8 }}>
           <Text strong>你的答案: </Text>
-          <Text style={{ color: isCorrect ? '#52c41a' : '#ff4d4f' }}>
+          <Text style={{ color: isCorrect ? 'var(--color-success)' : 'var(--color-error)' }}>
             {userAnswer === 'true' ? '✅ 对' : userAnswer === 'false' ? '❌ 错' : '(未作答)'}
           </Text>
           {!isCorrect && (
             <>
               <br />
               <Text strong>正确答案: </Text>
-              <Text style={{ color: '#52c41a' }}>{question.answer === 'true' ? '✅ 对' : '❌ 错'}</Text>
+              <Text style={{ color: 'var(--color-success)' }}>{question.answer === 'true' ? '✅ 对' : '❌ 错'}</Text>
             </>
           )}
         </div>
@@ -133,15 +133,15 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
       {showAnswer && question.type === 'essay' && (
         <div style={{ marginTop: 8 }}>
           <Text strong>你的答案: </Text>
-          <Text style={{ color: '#ff4d4f' }}>{userAnswer || '(未作答)'}</Text>
+          <Text style={{ color: 'var(--color-error)' }}>{userAnswer || '(未作答)'}</Text>
           <br />
           <Text strong>参考回答: </Text>
-          <Text style={{ color: '#52c41a', whiteSpace: 'pre-wrap' }}>{question.answer}</Text>
+          <Text style={{ color: 'var(--color-success)', whiteSpace: 'pre-wrap' }}>{question.answer}</Text>
         </div>
       )}
 
       {showAnswer && question.explanation && (
-        <div style={{ marginTop: 8, padding: 8, background: '#fffbe6', borderRadius: 4, border: '1px solid #ffe58f' }}>
+        <div style={{ marginTop: 8, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
           <Text type="secondary">
             <Text strong>解析: </Text>
             {question.explanation}

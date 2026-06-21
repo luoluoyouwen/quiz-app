@@ -1,6 +1,7 @@
 import mammoth from 'mammoth';
 import { parseTxt } from './txt';
 import { parseExamDocx } from './exam';
+import { normalizeText } from './normalize';
 import type { QuestionInput } from './types';
 
 /**
@@ -30,7 +31,9 @@ export async function parseDocx(
 
   if (hasSectionHeaders || hasFillBlanks) {
     try {
-      return parseExamDocx(text);
+      // AI 格式统一：规整 tab/空格/排版 → 再交给 regex 解析器
+      const normalized = await normalizeText(text);
+      return parseExamDocx(normalized);
     } catch {
       // Exam parser failed, fall through to TXT parser
     }

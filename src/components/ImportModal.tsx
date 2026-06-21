@@ -6,6 +6,7 @@ import { detectFormat } from '../utils/parsers';
 import type { QuestionInput } from '../utils/parsers';
 import { applyClozeToFillQuestions } from '../utils/cloze';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useColors } from '../utils/themeColors';
 
 const { Text } = Typography;
 
@@ -22,7 +23,9 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
   const [parsing, setParsing] = useState(false);
   const [fileName, setFileName] = useState('');
   const [parseError, setParseError] = useState('');
+  const [isDocx, setIsDocx] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const colors = useColors();
 
   const banks = useLiveQuery(() => db.banks.toArray());
 
@@ -31,6 +34,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
     if (!file) return;
 
     setFileName(file.name);
+    setIsDocx(file.name.toLowerCase().endsWith('.docx'));
     setParseError('');
     setParsing(true);
     setParsed([]);
@@ -117,6 +121,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
     setParsed([]);
     setFileName('');
     setParseError('');
+    setIsDocx(false);
     setParsing(false);
     // Reset file input
     if (fileInputRef.current) {
@@ -198,12 +203,12 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
       <div
         onClick={() => fileInputRef.current?.click()}
         style={{
-          border: '2px dashed #d9d9d9',
+          border: `2px dashed ${colors.border}`,
           borderRadius: 8,
-          padding: '40px 20px',
+          padding: '60px 20px',
           textAlign: 'center',
           cursor: 'pointer',
-          backgroundColor: parsing ? '#fafafa' : '#fff',
+          backgroundColor: parsing ? colors.bgFill : colors.bgContainer,
           transition: 'border-color 0.3s',
         }}
         onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#1677ff'; }}
@@ -217,10 +222,12 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
           onChange={handleFileSelect}
         />
         {parsing ? (
-          <Text type="secondary">正在解析文件...</Text>
+          <Text type="secondary">
+            {isDocx ? 'AI 格式整理中...' : '正在解析文件...'}
+          </Text>
         ) : (
           <>
-            <InboxOutlined style={{ fontSize: 48, color: '#999', display: 'block', marginBottom: 8 }} />
+            <InboxOutlined style={{ fontSize: 48, color: colors.textMuted, display: 'block', marginBottom: 8 }} />
             <Text>点击选择文件</Text>
             <br />
             <Text type="secondary" style={{ fontSize: 13 }}>
@@ -232,6 +239,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
 
       {fileName && (
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+          {isDocx && <Tag color="green" style={{ marginRight: 4 }}>AI 导入</Tag>}
           已选择文件: {fileName}
         </Text>
       )}
@@ -262,7 +270,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
             />
           </>
         ) : (
-          <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+          <div style={{ textAlign: 'center', padding: 20, color: colors.textMuted }}>
             <UploadOutlined style={{ fontSize: 24, display: 'block', marginBottom: 8 }} />
             <Text type="secondary">上传文件后预览</Text>
           </div>
