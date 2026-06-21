@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ConfigProvider, Layout, Menu, Typography, theme, Button } from 'antd';
 import {
   HomeOutlined,
@@ -87,11 +88,21 @@ function AppLayout() {
         </Header>
         <Content style={{ background: contentBg, minHeight: 'calc(100vh - 48px)' }}>
           <ErrorBoundary>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/bank/:id" element={<BankDetail />} />
-              <Route path="/practice/:bankId" element={<Practice />} />
-            </Routes>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <Routes location={location}>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/bank/:id" element={<BankDetail />} />
+                  <Route path="/practice/:bankId" element={<Practice />} />
+                </Routes>
+              </motion.div>
+            </AnimatePresence>
           </ErrorBoundary>
         </Content>
         <PwaUpdatePrompt />
