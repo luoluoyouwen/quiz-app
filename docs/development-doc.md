@@ -1,8 +1,8 @@
 # 刷题 App 开发文档
 
 > 项目名称：Quiz App  
-> 版本：1.1.5  
-> 更新日期：2026-06-21  
+> 版本：1.5.0  
+> 更新日期：2026-06-23  
 > 技术栈：React 19 + TypeScript 6 + Vite 8 + Ant Design 6 + Dexie (IndexedDB) + Cloudflare Pages Functions
 
 ---

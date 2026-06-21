@@ -348,7 +348,7 @@ export default function BankDetail() {
             expandable={{
               expandedRowRender: (record: Question) => (
                 <div style={{ padding: '8px 0' }}>
-                  <QuestionCard question={record} />
+                  <QuestionCard question={record} showAnswer />
                 </div>
               ),
               rowExpandable: () => true,
@@ -421,15 +421,17 @@ export default function BankDetail() {
           {/* 随机抽题 */}
           <div style={{ marginTop: 20 }}>
             <Text strong>随机抽题（可选）:</Text>
-            <InputNumber
-              min={0}
-              max={questions?.length || 0}
-              value={randomCount}
-              onChange={(v) => setRandomCount(v || 0)}
-              style={{ width: '100%', marginTop: 8 }}
-              placeholder="留空或填 0 则练习全部题目"
-              addonAfter="题"
-            />
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <InputNumber
+                min={0}
+                max={questions?.length || 0}
+                value={randomCount}
+                onChange={(v) => setRandomCount(v || 0)}
+                style={{ flex: 1 }}
+                placeholder="留空或填 0 则练习全部题目"
+              />
+              <Text>题</Text>
+            </div>
           </div>
         </div>
       </Modal>

@@ -145,6 +145,15 @@ export default function Practice() {
   const [answerRevealed, setAnswerRevealed] = useState(false);
   useEffect(() => { setAnswerRevealed(false); }, [currentIndex]);
 
+  // ── 离开页面时记录练习时间（只要提交过至少一题）──
+  useEffect(() => {
+    return () => {
+      if (bankId && Object.keys(submitted).length > 0) {
+        db.banks.update(Number(bankId), { lastPracticed: new Date() });
+      }
+    };
+  }, [bankId, submitted]);
+
   // ── 背题模式 toggle — all question types show flashcard UI
   const [flashcardMode, setFlashcardMode] = useState(false);
 
@@ -374,7 +383,15 @@ export default function Practice() {
                     <Text>
                       {currentQuestion?.type === 'judge'
                         ? (currentQuestion?.answer === 'true' || currentQuestion?.answer === '对' ? '✅ 对' : '❌ 错')
-                        : currentQuestion?.answer}
+                        : currentQuestion?.type === 'fill' && currentQuestion?.answers && currentQuestion.answers.length > 1
+                          ? currentQuestion.answers.map((a, i) => `第${i + 1}空：${a}`).join('\n')
+                          : (currentQuestion?.type === 'choice' || currentQuestion?.type === 'multi') && currentQuestion?.options
+                            ? currentQuestion.answer.split('').map(l => {
+                                const idx = l.charCodeAt(0) - 65;
+                                const optText = currentQuestion.options![idx];
+                                return `${l}. ${optText || '（选项缺失）'}`;
+                              }).join('\n')
+                            : currentQuestion?.answer}
                     </Text>
                   </div>
                   {currentQuestion?.explanation && (
