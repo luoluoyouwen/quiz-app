@@ -6,7 +6,7 @@ import {
 } from 'antd';
 import {
   DeleteOutlined, PlayCircleOutlined, InboxOutlined, ArrowLeftOutlined,
-  SearchOutlined, WarningFilled,
+  SearchOutlined, WarningFilled, SettingOutlined,
 } from '@ant-design/icons';
 import { db, type Question, type QuestionType } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -116,6 +116,11 @@ export default function BankDetail() {
     }
   };
 
+  // 一键开刷：全部题型，直接进入练习
+  const handleQuickStart = () => {
+    navigate(`/practice/${bankId}`, { state: { type: 'all' } });
+  };
+
   const tableColumns = [
     {
       title: '#',
@@ -173,9 +178,12 @@ export default function BankDetail() {
           {bank.description && <Text type="secondary">{bank.description}</Text>}
         </div>
         <Space>
-          <Button type="primary" icon={<PlayCircleOutlined />} size="large" onClick={() => setPracticeOpen(true)}>
-            开始刷题
-          </Button>
+          <Space.Compact>
+            <Button type="primary" icon={<PlayCircleOutlined />} size="large" onClick={handleQuickStart}>
+              开始刷题
+            </Button>
+            <Button type="primary" size="large" icon={<SettingOutlined />} onClick={() => setPracticeOpen(true)} />
+          </Space.Compact>
           <Popconfirm
             title="确定删除此题库？"
             description="所有题目和练习记录也将被删除"
