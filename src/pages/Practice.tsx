@@ -147,6 +147,37 @@ export default function Practice() {
   // 背题模式 toggle — all question types show flashcard UI
   const [flashcardMode, setFlashcardMode] = useState(false);
 
+  // ── 答对自动下一题（hooks 必须在 early return 之前）──
+  const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSubmitted = submitted[currentIndex];
+  const userAnswer = userAnswers[currentIndex] || '';
+  const checkResult = isSubmitted && currentQuestion ? checkAnswer(currentQuestion, userAnswer) : null;
+  const isCorrect = checkResult?.correct;
+
+  useEffect(() => {
+    if (isSubmitted && isCorrect && !flashcardMode) {
+      autoAdvanceTimer.current = setTimeout(() => {
+        handleNext();
+      }, 1500);
+    }
+    return () => {
+      if (autoAdvanceTimer.current) {
+        clearTimeout(autoAdvanceTimer.current);
+        autoAdvanceTimer.current = null;
+      }
+    };
+  }, [isSubmitted, isCorrect, flashcardMode, handleNext, currentIndex]);
+
+  // ── 手动点击下一题时清除自动跳转定时器 ──
+  const originalHandleNext = handleNext;
+  const wrappedHandleNext = useCallback(() => {
+    if (autoAdvanceTimer.current) {
+      clearTimeout(autoAdvanceTimer.current);
+      autoAdvanceTimer.current = null;
+    }
+    originalHandleNext();
+  }, [originalHandleNext]);
+
   // ── Results View ──
 
   if (sessionDone && bank) {
@@ -214,11 +245,6 @@ export default function Practice() {
 
   // ── Practice View ──
 
-  const isSubmitted = submitted[currentIndex];
-  const userAnswer = userAnswers[currentIndex] || '';
-  const checkResult = isSubmitted && currentQuestion ? checkAnswer(currentQuestion, userAnswer) : null;
-  const isCorrect = checkResult?.correct;
-
   const handleSubmitClick = () => {
     if (!userAnswers[currentIndex] && userAnswers[currentIndex] !== '') {
       message.warning('请先作答');
@@ -226,33 +252,6 @@ export default function Practice() {
     }
     handleSubmit();
   };
-
-  // ── 答对自动下一题 ──
-  const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (isSubmitted && isCorrect && !flashcardMode) {
-      autoAdvanceTimer.current = setTimeout(() => {
-        handleNext();
-      }, 1500);
-    }
-    return () => {
-      if (autoAdvanceTimer.current) {
-        clearTimeout(autoAdvanceTimer.current);
-        autoAdvanceTimer.current = null;
-      }
-    };
-  }, [isSubmitted, isCorrect, flashcardMode, handleNext, currentIndex]);
-
-  // ── 手动点击下一题时清除自动跳转定时器 ──
-  const originalHandleNext = handleNext;
-  const wrappedHandleNext = useCallback(() => {
-    if (autoAdvanceTimer.current) {
-      clearTimeout(autoAdvanceTimer.current);
-      autoAdvanceTimer.current = null;
-    }
-    originalHandleNext();
-  }, [originalHandleNext]);
 
   return (
     <div
