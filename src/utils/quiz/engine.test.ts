@@ -260,6 +260,51 @@ describe('checkAnswer - fill multi-blank', () => {
   });
 });
 
+// ── checkAnswer: choice with no options (parser edge case) ──
+
+describe('checkAnswer - choice without options', () => {
+  it('returns correct=false with skip flag when options undefined', () => {
+    const q: Question = {
+      id: 99, bankId: 1, type: 'choice',
+      content: '测试题',
+      options: undefined,
+      answer: 'B',
+    };
+    const r = checkAnswer(q, 'B');
+    // If no options defined, answer can't be validated via buttons
+    // but direct answer input should still work
+    expect(r.correct).toBe(true);
+    expect(r.expected).toBe('B');
+  });
+
+  it('returns correct=false with skip flag when options empty', () => {
+    const q: Question = {
+      id: 99, bankId: 1, type: 'choice',
+      content: '测试题',
+      options: [],
+      answer: 'B',
+    };
+    const r = checkAnswer(q, 'B');
+    expect(r.correct).toBe(true);
+  });
+});
+
+// ── checkAnswer: multi with no options ──
+
+describe('checkAnswer - multi without options', () => {
+  it('still validates answer directly when options undefined', () => {
+    const q: Question = {
+      id: 99, bankId: 1, type: 'multi',
+      content: '测试题',
+      options: undefined,
+      answer: 'AC',
+    };
+    expect(checkAnswer(q, 'AC').correct).toBe(true);
+    expect(checkAnswer(q, 'CA').correct).toBe(true);
+    expect(checkAnswer(q, 'AB').correct).toBe(false);
+  });
+});
+
 // ── Full parser + engine integration ──
 
 describe('full integration - parse then check answers', () => {

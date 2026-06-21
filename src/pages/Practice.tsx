@@ -183,12 +183,14 @@ export default function Practice() {
               currentQuestion.type === 'multi' ? 'cyan' :
               currentQuestion.type === 'fill' ? 'orange' :
               currentQuestion.type === 'judge' ? 'purple' :
+              currentQuestion.type === 'nofill' ? 'gold' :
               'green'
             }>
               {currentQuestion.type === 'choice' ? '选择题' :
                currentQuestion.type === 'multi' ? '多选题' :
                currentQuestion.type === 'fill' ? '填空题' :
-               currentQuestion.type === 'judge' ? '判断题' : '问答题'}
+               currentQuestion.type === 'judge' ? '判断题' :
+               currentQuestion.type === 'nofill' ? '无空填空题' : '问答题'}
             </Tag>
             {currentQuestion.type === 'multi' && (
               <Tag color="cyan">可多选</Tag>
@@ -490,6 +492,68 @@ export default function Practice() {
           </div>
         )}
 
+        {/* 无空填空题 — always 背题 mode, no blanks to fill */}
+        {currentQuestion?.type === 'nofill' && (
+          <div>
+            {!answerRevealed ? (
+              <Button
+                type="primary"
+                size="large"
+                onClick={() => setAnswerRevealed(true)}
+                style={{ width: '100%', height: 48, fontSize: 16, marginTop: 8 }}
+              >
+                显示答案
+              </Button>
+            ) : (
+              <div>
+                <Card
+                  size="small"
+                  style={{ marginBottom: 16, background: '#fffbe6', border: '1px solid #ffe58f' }}
+                >
+                  <Text strong style={{ fontSize: 15 }}>无填空，熟读即可：</Text>
+                  <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
+                    <Text>{currentQuestion.content}</Text>
+                  </div>
+                </Card>
+                <Space size="large" style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Button
+                    size="large"
+                    style={{
+                      width: 160, height: 60, fontSize: 18,
+                      background: '#f6ffed', border: '2px solid #52c41a',
+                      color: '#52c41a',
+                    }}
+                    onClick={() => {
+                      handleAnswer('__remembered__');
+                      handleSubmit();
+                      handleNext();
+                    }}
+                    icon={<CheckCircleOutlined />}
+                  >
+                    记住了
+                  </Button>
+                  <Button
+                    size="large"
+                    style={{
+                      width: 160, height: 60, fontSize: 18,
+                      background: '#fff1f0', border: '2px solid #ff4d4f',
+                      color: '#ff4d4f',
+                    }}
+                    onClick={() => {
+                      handleAnswer('__forgot__');
+                      handleSubmit();
+                      handleNext();
+                    }}
+                    icon={<CloseCircleOutlined />}
+                  >
+                    没记住
+                  </Button>
+                </Space>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Submit for fill */}
         {currentQuestion?.type === 'fill' && !isSubmitted && (
           <Button type="primary" onClick={handleSubmitClick} style={{ marginTop: 8 }}>
@@ -556,7 +620,7 @@ export default function Practice() {
             {currentIndex < totalQuestions - 1 ? '下一题' : '查看结果'}
           </Button>
         ) : (
-          currentQuestion?.type !== 'fill' && currentQuestion?.type !== 'essay' && (
+          currentQuestion?.type !== 'fill' && currentQuestion?.type !== 'essay' && currentQuestion?.type !== 'nofill' && (
             <Button type="primary" size="large" onClick={handleSubmitClick} style={{ width: '100%' }}>
               提交答案
             </Button>

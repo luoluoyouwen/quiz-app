@@ -64,7 +64,7 @@ export function shuffleQuestions<T extends Question>(
 
 export function filterByType(
   questions: Question[],
-  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'all'
+  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'nofill' | 'all'
 ): Question[] {
   if (type === 'all') return [...questions];
   return questions.filter((q) => q.type === type);
@@ -204,6 +204,13 @@ export function checkAnswer(
       return { correct: false, expected };
     }
 
+    case 'nofill': {
+      // 无空填空题: 背题模式 only, no answer to check
+      if (userAnswer === '__remembered__') return { correct: true, expected: '' };
+      if (userAnswer === '__forgot__') return { correct: false, expected: '' };
+      return { correct: false, expected: '' };
+    }
+
     default:
       return { correct: false, expected };
   }
@@ -216,7 +223,7 @@ let sessionCounter = 0;
 export function generateSession(
   bankId: number,
   questions: Question[],
-  mode: 'all' | 'choice' | 'multi' | 'fill' | 'judge' | 'essay' = 'all',
+  mode: 'all' | 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'nofill' = 'all',
 ): QuizSession {
   const id = `session_${Date.now()}_${++sessionCounter}`;
   const filtered = filterByType(questions, mode);

@@ -1,5 +1,5 @@
 export interface QuestionInput {
-  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay';
+  type: 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'nofill';
   content: string;
   options?: string[];  // ['A. text', 'B. text', ...] for choice/multi
   answer: string;

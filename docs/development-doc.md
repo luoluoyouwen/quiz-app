@@ -2,7 +2,7 @@
 
 > 项目名称：Quiz App  
 > 版本：0.0.0  
-> 更新日期：2026-06-20  
+> 更新日期：2026-06-21  
 > 技术栈：React 19 + TypeScript 6 + Vite 8 + Ant Design 6 + Dexie (IndexedDB)
 
 ---
@@ -281,14 +281,18 @@ applyClozeToFillQuestions()  // 自动挖空填空题
 #### `tryParseChoice(line)`
 - 匹配 `（C）` → 单选题
 - 匹配 `（ABC）` → 单选题（后续按答案长度区分单选/多选）
-- 遍历后续行收集选项（支持单行多选项如 `A.xxx      B.xxx`）
+- 遍历后续行收集选项：支持单行多选项，按 `\t| {2,}(?=[A-Da-d][.、．])` 切分（tab 或 2+空格后跟选项标记）
 - 返回时根据答案字符串长度自动设 type：1个字母→`'choice'`，多个→`'multi'`
 
 #### `tryParseFill(line)` ⚠️ 核心逻辑，历史 Bug 最多
 - **检测**：行内有 `2+ 空格` 分段
-- **分段**：`line.split(/\s{2,}/)` → 取偶数索引为题干正文，奇数索引为答案
-- **答案清洗**：去除前后标点符号，截断到首个中文功能词
-- **内容构建**：偶数索引保留，奇数索引替换为 `____`
+- **分段**：`line.split(/\s{2,}|(?<=及|与|和|或)\s/)` — 支持 2+ 空格切分，以及中文连词后单空格切分
+- **单遍线性扫描**：按以下规则遍历 parts，保持原始顺序：
+  1. `parts[0]` → 首个题干段
+  2. 后续段若以 `、` 开头且内容短（≤7 字）→ 提升为答案，`、` 作为内容分隔符
+  3. 其余段按奇偶交替（奇数→答案，偶数→题干）
+- **答案清洗**：去除首尾标点符号；截断 `space+逗号+功能词` 后的内容（如 `油膜破坏 ，过低会导致` → `油膜破坏`）；截断 `space+功能词` 后的内容
+- **内容构建**：contentParts 与 cleanAnswers 逐项配对，保证 `blanks === answers.length`
 - **多空合一**：同一行的所有空白合并为一道填空题，`answers` 数组存储
 - **判题使用**：用户输入以 `||` 分隔各空
 
@@ -316,9 +320,10 @@ applyClozeToFillQuestions()  // 自动挖空填空题
 
 | 限制 | 说明 | 计划 |
 |------|------|------|
-| 依赖空格分段 | 部分 DOCX 使用制表符/缩进，可能漏解析 | v2 增加多分隔符检测 |
-| 单行多题 | 某些题库一行塞两题，当前只认第一题 | v2 加入行内分割 |
-| 答案清洗规则 | 中文功能词截断列表为硬编码 | v2 改为 NLP 分词判断 |
+| 单空格内联选项 | 部分单选题使用单空格分隔（A. 一取一 B. 二取一），当前不拆分 | v2 提升拆分精度 |
+| 选项行在题干前 | 某些题库选项行出现在题干上方，当前无法关联 | v2 增加上下文关联 |
+| 答案清洗规则 | 中文功能词截断列表为硬编码，可能误伤罕见长答案 | v2 改为 NLP 分词判断 |
+| 顿号枚举长度硬限 | `、` 后内容 ≤7 字才提升为答案，≥8 字仍作为题干（边界案例极少） | v2 词汇分析替代长度启发 |
 
 ---
 
@@ -480,17 +485,25 @@ export function applyClozeToFillQuestions(questions: QuestionInput[]): QuestionI
 
 ### 9.1 Service Worker 策略
 
+使用 `injectManifest` 策略，自定义 Service Worker（`sw-custom.js`）：
+
 ```typescript
 // vite.config.ts
 VitePWA({
-  registerType: 'autoUpdate',   // ✅ 自动检测更新
+  strategies: 'injectManifest',
+  srcDir: '.',
+  filename: 'sw-custom.js',
+  registerType: 'autoUpdate',
   // ...
 })
 ```
 
-- **autoUpdate 模式**：新 Service Worker 安装后立即接管，不等待用户
-- **更新提示**：`main.tsx` 监听 `onUpdate` 事件，底部显示蓝色提示条
-- **图标资源**：favicon.svg + pwa-192x192.png + pwa-512x512.png
+核心行为：
+- **NetworkFirst 策略**：HTML 导航优先从网络加载，保证用户始终获得最新版本
+- **Precache 静态资源**：JS/CSS/图标等 Vite 构建产物由 workbox precache 管理
+- **SKIP_WAITING**：页面可通过 `postMessage({type:'SKIP_WAITING'})` 指令立即激活新 SW
+- **clientsClaim**：激活后立即接管所有已打开的页面标签
+- **更新提示**：`PwaUpdatePrompt` 组件检测到 waiting SW 后，显示蓝色"新版本已发布 刷新"按钮
 
 ### 9.2 离线方案
 
@@ -513,11 +526,12 @@ VitePWA({
 
 | 测试文件 | 用例数 | 覆盖范围 |
 |----------|--------|----------|
-| `engine.test.ts` | 30+ | 打乱、筛选、判题（5种题型+多空+集成） |
-| `stats.test.ts` | 9 | 统计聚合、薄弱点分析、错题队列 |
-| `exam.test.ts` | 8 | DOCX 填空题/选择题/多选题/判断题/简答题解析 |
+| `engine.test.ts` | 45 | 打乱、筛选、判题（5种题型+多空+非法字符+无options兼容+集成） |
+| `stats.test.ts` | 11 | 统计聚合、薄弱点分析、错题队列 |
+| `exam.test.ts` | 21 | DOCX 解析：5题型 + tab/短空格多选项 + 顿号枚举 + 连词切分 + 答案清洗 + nofill |
+| `raw_docx.integration.test.ts` | 14 | 全量数据 8 项一致性断言 + 4 个特定修复点验证 |
 
-总计：**60 个测试用例**（vitest）
+总计：**91 个测试用例**（vitest）
 
 ### 10.2 判题测试覆盖矩阵
 
@@ -531,10 +545,18 @@ VitePWA({
 
 ### 10.3 集成测试
 
-覆盖完整解析+判题链路（4 个测试）：
+覆盖完整解析+判题链路（3 个测试）+ 全量数据一致性验证（14 个测试）：
 
-```
-parseExamDocx("填空题...") → checkAnswer → 验证所有题型题干各不相同
+```typescript
+// parser + checkAnswer end-to-end
+parseExamDocx("填空题...") → checkAnswer(||) → 验证所有题型题干各不相同
+
+// raw_docx.txt 全量数据断言
+raw_docx.integration  →  fill 题 blanks == answers
+                      →  每题型 answer 非空
+                      →  题数 300-360 范围
+                      →  内容唯一性（排除已知数据重复）
+                      →  特定修复点：顿号枚举/连词切分/tab分离
 ```
 
 ### 10.4 运行命令
@@ -628,7 +650,8 @@ quiz-app/
 │   │   │   ├── index.ts        # 格式检测路由
 │   │   │   ├── types.ts        # 共享类型
 │   │   │   ├── exam.ts         # 考试卷解析器（核心）
-│   │   │   ├── exam.test.ts    # 解析器测试
+│   │   │   ├── exam.test.ts    # 解析器测试（21 个）
+│   │   │   ├── raw_docx.integration.test.ts  # 全量数据集成测试（14 个）
 │   │   │   ├── txt.ts          # TXT 解析
 │   │   │   ├── json.ts         # JSON 解析
 │   │   │   ├── csv.ts          # CSV 解析
@@ -647,6 +670,7 @@ quiz-app/
 │   └── index.css               # 全局样式
 ├── docs/
 │   └── development-doc.md      # 本文档
+├── sw-custom.js               # 自定义 Service Worker（injectManifest）
 ├── package.json
 ├── vite.config.ts
 ├── tsconfig.json
@@ -758,7 +782,12 @@ T-03 组件测试          T-04 组件拆分
 | 2026-06-20 | 单空填空题无任何空白 | off-by-one：`i+1 < parts.length` 条件导致最后一个元素不生成 `____` | 改为无条件 `else` |
 | 2026-06-20 | 多选题选 ABCDE 判对 | `normalizeMulti` 的 `replace(/[^A-D]/g, '')` 静默丢弃非法字符 | 添加校验 `!/^[A-D]*$/.test(input)`，非法直接判错 |
 | 2026-06-20 | 判断题 `expected` 显示为 `true`/`false` | `checkAnswer` 直接返回原文 | 转译为"对"/"错"，按钮高亮兼容中英文 |
-| 2026-06-20 | PWA 缓存导致旧代码持续运行 | `registerType: 'default'` 策略不够积极 | 改为 `autoUpdate` + 蓝色提示条 |
+|| 2026-06-21 | 单选题 tab/短空格多选项未分离（A.xxx\tB.xxx） | `split(/\s{3,}/)` 不匹配 tab 和 2 空格 | 改为 `split(/\t| {2,}(?=[A-Da-d][.、．])/)` — tab + 2+空格后跟选项标记 |
+|| 2026-06-21 | 填空题顿号枚举未分离（、降低负荷  、严禁强行带负荷） | `extractFillAnswers` 交替模式不处理中文顿号枚举 | 单遍线性扫描，`、` 短内容提升为答案 |
+|| 2026-06-21 | 填空题连词单空格未切分（及 调节油） | `split(/\s{2,}/)` 不匹配连词后单空格 | 增加 `(?<=及|与|和|或)\s` 切分规则 |
+|| 2026-06-21 | 答案清洗误伤长答案（0.1 MPa，燃料气压力） | `\s+，.*$` 剥离所有逗号后内容 | 改用 `\s[、，]\s*[^会将]*[会将].*$` 仅剥离含功能词的逗号从句 |
+|| 2026-06-21 | 问答题"处理方法是："被当作独立题目 | `isQuestionLine` 中 `方法` 无 `$` 锚点匹配了任意包含"方法"的行 | `方法` → `方法$` 仅匹配行尾 |
+|| 2026-06-21 | PWA 缓存不使用 `autoUpdate` | `vite-plugin-pwa` 的 `generateSW` 模式忽略 `registerType` | 改为 `injectManifest` + 自定义 `sw-custom.js`（NetworkFirst + skipWaiting + clientsClaim） |
 
 ### B. 常见问题
 

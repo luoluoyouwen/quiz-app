@@ -8,7 +8,7 @@ export interface QuestionBank {
   lastPracticed?: Date;
 }
 
-export type QuestionType = 'choice' | 'multi' | 'fill' | 'judge' | 'essay';
+export type QuestionType = 'choice' | 'multi' | 'fill' | 'judge' | 'essay' | 'nofill';
 
 export interface Question {
   id?: number;

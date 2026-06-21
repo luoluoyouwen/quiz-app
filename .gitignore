@@ -25,6 +25,11 @@ dist-ssr
 
 .vercel
 
+# 调试文件
+_check*.ts
+_debug*.ts
+_find*.ts
+
 # 环境文件
 .env
 .env.local
