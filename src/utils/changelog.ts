@@ -12,9 +12,19 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.1.4';
+export const APP_VERSION = '1.1.5';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '1.1.5',
+    date: '2026-06-21',
+    title: 'CF Pages Function 代理 AI 格式整理',
+    changes: [
+      'AI 格式整理改为后端代理模式，API key 存在 CF 环境变量中，不再进入前端 bundle',
+      '新增 CF Pages Function 代理端（functions/api/ai-normalize.ts）',
+      '本地开发保持原有直接调用 DeepSeek 模式',
+    ],
+  },
   {
     version: '1.1.4',
     date: '2026-06-21',
