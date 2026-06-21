@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip, message } from 'antd';
-import { PlusOutlined, ImportOutlined, RightCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip, message, Tag, List } from 'antd';
+import { PlusOutlined, ImportOutlined, RightCircleOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { db, type QuestionBank } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ImportModal from '../components/ImportModal';
+import { APP_VERSION, CHANGELOG } from '../utils/changelog';
 
 const { Title, Text } = Typography;
 
@@ -12,6 +13,7 @@ export default function Home() {
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [importBankId, setImportBankId] = useState<number | undefined>(undefined);
+  const [changelogOpen, setChangelogOpen] = useState(false);
   const [form] = Form.useForm();
 
   const banks = useLiveQuery(() => db.banks.toArray());
@@ -154,6 +156,49 @@ export default function Home() {
         bankId={importBankId}
         onClose={() => setImportBankId(undefined)}
       />
+
+      {/* 版本号 & 更新日志 */}
+      <div style={{ textAlign: 'center', padding: '24px 0 8px', opacity: 0.5 }}>
+        <Text
+          type="secondary"
+          style={{ fontSize: 12, cursor: 'pointer' }}
+          onClick={() => setChangelogOpen(true)}
+        >
+          v{APP_VERSION}
+        </Text>
+      </div>
+
+      <Modal
+        title={
+          <span>
+            <InfoCircleOutlined style={{ marginRight: 8 }} />
+            更新日志
+          </span>
+        }
+        open={changelogOpen}
+        onCancel={() => setChangelogOpen(false)}
+        footer={<Button onClick={() => setChangelogOpen(false)}>关闭</Button>}
+        width={560}
+      >
+        {CHANGELOG.map((entry) => (
+          <div key={entry.version} style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Tag color="blue">v{entry.version}</Tag>
+              <Text type="secondary" style={{ fontSize: 12 }}>{entry.date}</Text>
+              <Text strong>{entry.title}</Text>
+            </div>
+            <List
+              size="small"
+              dataSource={entry.changes}
+              renderItem={(item) => (
+                <List.Item style={{ padding: '2px 0' }}>
+                  <Text style={{ fontSize: 13 }}>• {item}</Text>
+                </List.Item>
+              )}
+            />
+          </div>
+        ))}
+      </Modal>
     </div>
   );
 }

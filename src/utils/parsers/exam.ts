@@ -51,6 +51,12 @@ function tryParseJudge(line: string): ParsedBlock | null {
   return { type: 'judge', content, answer };
 }
 
+// ── Strip option prefix (A. / A、/ A．/ A) / A）/ A: / A（space)) ──
+
+function stripOptionPrefix(opt: string): string {
+  return opt.replace(/^[A-Da-d](?:[.、．)）:：\s\u3000]+\s*)?/, '');
+}
+
 // ── Choice question: check if line has (A)/(B)/(C)/(D) or (A,B,C) ──
 
 function tryParseChoice(line: string): ParsedBlock | null {
@@ -286,13 +292,13 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
         let j = i + 1;
         while (j < lines.length) {
           const optLine = lines[j];
-          if (/^[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff])/.test(optLine)) {
+          if (/^[A-Da-d](?:[.、．)）:：\s\u3000]|[\u4e00-\u9fff])/.test(optLine)) {
             // Check if this line has multiple options (e.g. "A. text        B. text")
-            const multiOpts = optLine.split(/\t| {2,}(?=[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff]))|\s(?=[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff]))|(?=[A-Da-d][、．])/).filter(o => /^[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff])/.test(o.trim()));
+            const multiOpts = optLine.split(/\t| {2,}(?=[A-Da-d](?:[.、．)）:：\s\u3000]|[\u4e00-\u9fff]))|\s(?=[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff]))|(?=[A-Da-d][、．])/).filter(o => /^[A-Da-d](?:[.、．\s\u3000]|[\u4e00-\u9fff])/.test(o.trim()));
             if (multiOpts.length > 1) {
-              multiOpts.forEach(o => options.push(o.trim()));
+              multiOpts.forEach(o => options.push(stripOptionPrefix(o.trim())));
             } else {
-              options.push(optLine.trim());
+              options.push(stripOptionPrefix(optLine.trim()));
             }
             j++;
           } else {
@@ -300,8 +306,13 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
           }
         }
 
-        // Question content is the line minus the answer marker
-        const content = line.replace(/[（(]\s*[A-D]{1,}\s*[）)]/, '').replace(/[。.]?\s*$/, '').trim();
+        // Question content: replace answer marker with ____ if in the middle of the stem
+        const content = line
+          .replace(/[（(]\s*[A-D]{1,}\s*[）)]\s*[。.]?\s*$/, '') // trailing marker → remove
+          .replace(/^[（(]\s*[A-D]{1,}\s*[）)]\s*/, '') // leading marker → remove
+          .replace(/[（(]\s*[A-D]{1,}\s*[）)]/, '____') // middle marker → replace with blank
+          .replace(/[。.]?\s*$/, '')
+          .trim();
 
         questions.push({
           type: qType,

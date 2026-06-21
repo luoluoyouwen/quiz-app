@@ -55,7 +55,7 @@ export default function PwaUpdatePrompt() {
         bottom: 80,
         left: 16,
         right: 16,
-        background: '#1677ff',
+        background: 'var(--primary)',
         color: '#fff',
         padding: '14px 20px',
         borderRadius: 10,

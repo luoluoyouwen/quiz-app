@@ -13,6 +13,19 @@ import { useQuizSession } from '../hooks/useQuizSession';
 import { checkAnswer } from '../utils/quiz/engine';
 import QuestionCard from '../components/QuestionCard';
 
+const getStorageKey = (bankId: string, typeParam: string, questionIds?: number[]): string => {
+  const type = typeParam || 'all';
+  const extra = questionIds ? '_wrong' : '';
+  return `quiz_progress_${bankId}_${type}${extra}`;
+};
+
+interface ResumeData {
+  currentIndex: number;
+  userAnswers: Record<number, string>;
+  submitted: Record<number, boolean>;
+  timestamp: number;
+}
+
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
@@ -21,6 +34,12 @@ export default function Practice() {
   const navigate = useNavigate();
   const location = useLocation();
   const typeParam = (location.state as { type?: string })?.type || 'all';
+  const questionIds = (location.state as { questionIds?: number[] })?.questionIds;
+
+  // ── 断点续刷 state（必须在 useQuizSession 之前声明）──
+  const [resumeState, setResumeState] = useState<ResumeData | null | undefined>(undefined);
+  const [resumeModalOpen, setResumeModalOpen] = useState(false);
+  const [savedResume, setSavedResume] = useState<ResumeData | null>(null);
 
   const bank = useLiveQuery(() => db.banks.get(Number(bankId)), [bankId]);
   const allQuestions = useLiveQuery(
@@ -33,10 +52,75 @@ export default function Practice() {
     userAnswers, submitted,
     totalQuestions, currentQuestion,
     handleAnswer, handleSubmit, handleNext, handlePrev, goToQuestion, handleRestart,
-  } = useQuizSession(bankId || '', allQuestions, typeParam);
+  } = useQuizSession(bankId || '', allQuestions, typeParam, questionIds, resumeState);
 
   // Question grid / navigation
   const [gridOpen, setGridOpen] = useState(false);
+
+  // Check for saved progress on mount
+  useEffect(() => {
+    if (bankId) {
+      try {
+        const raw = localStorage.getItem(getStorageKey(bankId, typeParam, questionIds));
+        if (raw) {
+          const data: ResumeData = JSON.parse(raw);
+          if (data.timestamp && Date.now() - data.timestamp < 86400000) { // < 24h
+            setSavedResume(data);
+            setResumeModalOpen(true);
+          } else {
+            localStorage.removeItem(getStorageKey(bankId, typeParam, questionIds));
+          }
+        }
+      } catch { /* ignore corrupt data */ }
+    }
+  }, [bankId]);
+
+  const handleResume = () => {
+    if (savedResume) {
+      setResumeState(savedResume);
+      setResumeModalOpen(false);
+    }
+  };
+
+  const handleNoResume = () => {
+    localStorage.removeItem(getStorageKey(bankId!, typeParam, questionIds));
+    setSavedResume(null);
+    setResumeModalOpen(false);
+    setResumeState(null);
+  };
+
+  // Save progress to localStorage on answers change
+  useEffect(() => {
+    if (!bankId || !session || Object.keys(userAnswers).length === 0) return;
+    if (sessionDone) {
+      localStorage.removeItem(getStorageKey(bankId, typeParam, questionIds));
+      return;
+    }
+    try {
+      const data: ResumeData = {
+        currentIndex,
+        userAnswers,
+        submitted,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(getStorageKey(bankId, typeParam, questionIds), JSON.stringify(data));
+    } catch { /* quota exceeded, ignore */ }
+  }, [bankId, session, userAnswers, submitted, currentIndex, sessionDone]);
+
+  // Save on beforeunload
+  useEffect(() => {
+    const save = () => {
+      if (!bankId || !session || Object.keys(userAnswers).length === 0) return;
+      if (sessionDone) { localStorage.removeItem(getStorageKey(bankId, typeParam, questionIds)); return; }
+      try {
+        localStorage.setItem(getStorageKey(bankId, typeParam, questionIds), JSON.stringify({
+          currentIndex, userAnswers, submitted, timestamp: Date.now(),
+        }));
+      } catch {}
+    };
+    window.addEventListener('beforeunload', save);
+    return () => window.removeEventListener('beforeunload', save);
+  }, [bankId, session, userAnswers, submitted, currentIndex, sessionDone]);
 
   // Touch swipe handlers
   const touchStartRef = useRef<number | null>(null);
@@ -218,7 +302,7 @@ export default function Practice() {
               <div>
                 <Card
                   size="small"
-                  style={{ marginBottom: 16, background: '#f6ffed', border: '1px solid #b7eb8f' }}
+                  style={{ marginBottom: 16, background: 'var(--bg-success)', border: '1px solid var(--border-success)' }}
                 >
                   <Text strong style={{ fontSize: 15 }}>参考答案：</Text>
                   <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
@@ -229,7 +313,7 @@ export default function Practice() {
                     </Text>
                   </div>
                   {currentQuestion?.explanation && (
-                    <div style={{ marginTop: 12, padding: 8, background: '#fffbe6', borderRadius: 4, border: '1px solid #ffe58f' }}>
+                    <div style={{ marginTop: 12, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
                       <Text type="secondary">
                         <Text strong>解析: </Text>
                         {currentQuestion.explanation}
@@ -242,8 +326,8 @@ export default function Practice() {
                     size="large"
                     style={{
                       width: 160, height: 60, fontSize: 18,
-                      background: '#f6ffed', border: '2px solid #52c41a',
-                      color: '#52c41a',
+                      background: 'var(--bg-success)', border: '2px solid var(--color-success)',
+                      color: 'var(--color-success)',
                     }}
                     onClick={() => {
                       handleAnswer('__remembered__');
@@ -258,8 +342,8 @@ export default function Practice() {
                     size="large"
                     style={{
                       width: 160, height: 60, fontSize: 18,
-                      background: '#fff1f0', border: '2px solid #ff4d4f',
-                      color: '#ff4d4f',
+                      background: 'var(--bg-error)', border: '2px solid var(--color-error)',
+                      color: 'var(--color-error)',
                     }}
                     onClick={() => {
                       handleAnswer('__forgot__');
@@ -295,10 +379,10 @@ export default function Practice() {
                     style={{
                       padding: '10px 12px',
                       border: `1px solid ${
-                        isOptCorrect ? '#52c41a' : isOptWrong ? '#ff4d4f' : '#d9d9d9'
+                        isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
                       }`,
                       borderRadius: 8,
-                      background: isOptCorrect ? '#f6ffed' : isOptWrong ? '#fff1f0' : '#fff',
+                      background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
                       cursor: isSubmitted ? 'default' : 'pointer',
                     }}
                   >
@@ -333,10 +417,10 @@ export default function Practice() {
                     style={{
                       padding: '10px 12px',
                       border: `1px solid ${
-                        isOptCorrect ? '#52c41a' : isOptWrong ? '#ff4d4f' : '#d9d9d9'
+                        isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
                       }`,
                       borderRadius: 8,
-                      background: isOptCorrect ? '#f6ffed' : isOptWrong ? '#fff1f0' : '#fff',
+                      background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
                       cursor: isSubmitted ? 'default' : 'pointer',
                     }}
                   >
@@ -395,9 +479,9 @@ export default function Practice() {
               size="large"
               style={{
                 width: 140, height: 80, fontSize: 20,
-                border: userAnswer === 'true' ? '2px solid #52c41a' : undefined,
-                background: isSubmitted && ['true', '对'].includes(currentQuestion.answer) ? '#f6ffed'
-                  : userAnswer === 'true' ? '#f6ffed' : undefined,
+                border: userAnswer === 'true' ? '2px solid var(--color-success)' : undefined,
+                background: isSubmitted && ['true', '对'].includes(currentQuestion.answer) ? 'var(--bg-success)'
+                  : userAnswer === 'true' ? 'var(--bg-success)' : undefined,
               }}
               onClick={() => handleAnswer('true')}
               disabled={isSubmitted}
@@ -409,9 +493,9 @@ export default function Practice() {
               size="large"
               style={{
                 width: 140, height: 80, fontSize: 20,
-                border: userAnswer === 'false' ? '2px solid #ff4d4f' : undefined,
-                background: isSubmitted && ['false', '错'].includes(currentQuestion.answer) ? '#fff1f0'
-                  : userAnswer === 'false' ? '#fff1f0' : undefined,
+                border: userAnswer === 'false' ? '2px solid var(--color-error)' : undefined,
+                background: isSubmitted && ['false', '错'].includes(currentQuestion.answer) ? 'var(--bg-error)'
+                  : userAnswer === 'false' ? 'var(--bg-error)' : undefined,
               }}
               onClick={() => handleAnswer('false')}
               disabled={isSubmitted}
@@ -438,14 +522,14 @@ export default function Practice() {
               <div>
                 <Card
                   size="small"
-                  style={{ marginBottom: 16, background: '#f6ffed', border: '1px solid #b7eb8f' }}
+                  style={{ marginBottom: 16, background: 'var(--bg-success)', border: '1px solid var(--border-success)' }}
                 >
                   <Text strong style={{ fontSize: 15 }}>参考答案：</Text>
                   <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
                     <Text>{currentQuestion.answer}</Text>
                   </div>
                   {currentQuestion.explanation && (
-                    <div style={{ marginTop: 12, padding: 8, background: '#fffbe6', borderRadius: 4, border: '1px solid #ffe58f' }}>
+                    <div style={{ marginTop: 12, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
                       <Text type="secondary">
                         <Text strong>解析: </Text>
                         {currentQuestion.explanation}
@@ -458,8 +542,8 @@ export default function Practice() {
                     size="large"
                     style={{
                       width: 160, height: 60, fontSize: 18,
-                      background: '#f6ffed', border: '2px solid #52c41a',
-                      color: '#52c41a',
+                      background: 'var(--bg-success)', border: '2px solid var(--color-success)',
+                      color: 'var(--color-success)',
                     }}
                     onClick={() => {
                       handleAnswer('__remembered__');
@@ -474,8 +558,8 @@ export default function Practice() {
                     size="large"
                     style={{
                       width: 160, height: 60, fontSize: 18,
-                      background: '#fff1f0', border: '2px solid #ff4d4f',
-                      color: '#ff4d4f',
+                      background: 'var(--bg-error)', border: '2px solid var(--color-error)',
+                      color: 'var(--color-error)',
                     }}
                     onClick={() => {
                       handleAnswer('__forgot__');
@@ -508,7 +592,7 @@ export default function Practice() {
               <div>
                 <Card
                   size="small"
-                  style={{ marginBottom: 16, background: '#fffbe6', border: '1px solid #ffe58f' }}
+                  style={{ marginBottom: 16, background: 'var(--bg-warning)', border: '1px solid var(--border-warning)' }}
                 >
                   <Text strong style={{ fontSize: 15 }}>无填空，熟读即可：</Text>
                   <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
@@ -520,8 +604,8 @@ export default function Practice() {
                     size="large"
                     style={{
                       width: 160, height: 60, fontSize: 18,
-                      background: '#f6ffed', border: '2px solid #52c41a',
-                      color: '#52c41a',
+                      background: 'var(--bg-success)', border: '2px solid var(--color-success)',
+                      color: 'var(--color-success)',
                     }}
                     onClick={() => {
                       handleAnswer('__remembered__');
@@ -536,8 +620,8 @@ export default function Practice() {
                     size="large"
                     style={{
                       width: 160, height: 60, fontSize: 18,
-                      background: '#fff1f0', border: '2px solid #ff4d4f',
-                      color: '#ff4d4f',
+                      background: 'var(--bg-error)', border: '2px solid var(--color-error)',
+                      color: 'var(--color-error)',
                     }}
                     onClick={() => {
                       handleAnswer('__forgot__');
@@ -570,26 +654,26 @@ export default function Practice() {
           size="small"
           style={{
             marginBottom: 16,
-            borderLeft: `3px solid ${isCorrect ? '#52c41a' : '#ff4d4f'}`,
+            borderLeft: `3px solid ${isCorrect ? 'var(--color-success)' : 'var(--color-error)'}`,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             {isCorrect ? (
               <>
-                <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 18 }} />
-                <Text strong style={{ color: '#52c41a' }}>回答正确!</Text>
+                <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 18 }} />
+                <Text strong style={{ color: 'var(--color-success)' }}>回答正确!</Text>
               </>
             ) : (
               <>
-                <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 18 }} />
-                <Text strong style={{ color: '#ff4d4f' }}>回答错误</Text>
+                <CloseCircleOutlined style={{ color: 'var(--color-error)', fontSize: 18 }} />
+                <Text strong style={{ color: 'var(--color-error)' }}>回答错误</Text>
               </>
             )}
           </div>
           {!isCorrect && (
             <div style={{ marginBottom: 4 }}>
               <Text strong>正确答案: </Text>
-              <Text style={{ color: '#52c41a', fontWeight: 'bold' }}>
+              <Text style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>
                 {currentQuestion.type === 'judge'
                   ? (checkResult.expected === '对' ? '✅ 对' : '❌ 错')
                   : checkResult.expected}
@@ -597,7 +681,7 @@ export default function Practice() {
             </div>
           )}
           {currentQuestion.explanation && (
-            <div style={{ marginTop: 4, padding: 8, background: '#fffbe6', borderRadius: 4, border: '1px solid #ffe58f' }}>
+            <div style={{ marginTop: 4, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
               <Text type="secondary">
                 <Text strong>解析: </Text>
                 {currentQuestion.explanation}
@@ -664,9 +748,9 @@ export default function Practice() {
                 style={{
                   width: 44, height: 44,
                   fontWeight: isCurrent ? 'bold' : 'normal',
-                  background: isCurrent ? undefined : isAnswered ? '#f6ffed' : '#fafafa',
-                  border: isCurrent ? undefined : isAnswered ? '1px solid #b7eb8f' : '1px solid #d9d9d9',
-                  color: isCurrent ? '#fff' : isAnswered ? '#389e0d' : '#999',
+                  background: isCurrent ? undefined : isAnswered ? 'var(--bg-success)' : 'var(--bg-fill)',
+                  border: isCurrent ? undefined : isAnswered ? '1px solid var(--border-success)' : '1px solid var(--border)',
+                  color: isCurrent ? '#fff' : isAnswered ? 'var(--color-success)' : 'var(--color-text-secondary)',
                 }}
               >
                 {i + 1}
@@ -674,6 +758,26 @@ export default function Practice() {
             );
           })}
         </div>
+      </Modal>
+
+      {/* 断点续传弹窗 */}
+      <Modal
+        title="发现未完成的练习"
+        open={resumeModalOpen}
+        onCancel={handleNoResume}
+        footer={
+          <Space>
+            <Button onClick={handleNoResume}>重新开始</Button>
+            <Button type="primary" onClick={handleResume}>
+              继续上次练习（第 {savedResume ? savedResume.currentIndex + 1 : '?'} 题）
+            </Button>
+          </Space>
+        }
+      >
+        <Text>
+          检测到你上次练习做到第 <Text strong>{savedResume ? savedResume.currentIndex + 1 : '?'}</Text> 题，
+          是否继续上次进度？选择「重新开始」将清除历史进度。
+        </Text>
       </Modal>
     </div>
   );
