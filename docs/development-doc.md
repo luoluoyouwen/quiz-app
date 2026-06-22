@@ -23,6 +23,7 @@
 12. [开发与部署](#12-开发与部署)
 13. [未来升级路线](#13-未来升级路线)
 14. [AI 格式整理模块](#14-ai-格式整理模块)
+15. [新人快速接手清单](#15-新人快速接手清单)
 
 ---
 
@@ -890,6 +891,86 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 - 转发完整的 request body 到 `https://api.deepseek.com/chat/completions`
 - 65 秒超时（比前端 60 秒略长，包容一次网络重试）
 - 无需编译，TypeScript 源文件直接由 wrangler 在部署时编译
+
+---
+
+## 15. 新人快速接手清单
+
+> 失忆专用 — 从零开始接手此项目的所有关键信息。
+
+### 15.1 项目速览
+
+| 属性 | 值 |
+|------|-----|
+| 项目路径 | `E:\quiz-app` |
+| 域名 | `https://quiz-app-8q3.pages.dev` |
+| CF Pages 项目名 | `quiz-app`（≠ 域名） |
+| 部署方式 | `bash deploy-cf.sh`（需 `CLOUDFLARE_API_TOKEN`） |
+| 当前版本 | v1.6.0 |
+| 测试总数 | 153（7 文件，137 单元 + 16 集成） |
+| 技术栈 | React 19 + TypeScript 6 + Vite 8 + Ant Design 6 + Dexie + CF Pages |
+
+### 15.2 前置准备
+
+| 需要什么 | 在哪找 | 说明 |
+|----------|--------|------|
+| `CLOUDFLARE_API_TOKEN` | `.env.cf`（gitignored，仅本地磁盘） | 部署到 CF Pages 用。bash 里 `export` 后再执行 `bash deploy-cf.sh` |
+| `CLOUDFLARE_ACCOUNT_ID` | 同上 | `53a84e71ab59dcac4ddb5e2bc8aa6541` |
+| `AI_NORMALIZE_API_KEY` | `.env.normalize`（gitignored） | 本地 AI 格式整理用 DeepSeek key。模板见 `.env.normalize.example` |
+| 运行环境 | Windows 10 + git-bash | `npm`/`npx` 可用，`wrangler` 通过 npx |
+
+### 15.3 一日操作流
+
+```bash
+# 1. 进入项目
+cd /e/quiz-app
+
+# 2. 安装依赖（首次 / 依赖变更后）
+npm install
+
+# 3. 本地开发
+npm run dev            # http://localhost:5173
+
+# 4. 跑测试
+npm test               # 153 tests, 7 files
+
+# 5. 构建
+npm run build
+
+# 6. 部署
+export CLOUDFLARE_API_TOKEN=***  # 从 .env.cf 取值
+bash deploy-cf.sh                # 构建+部署一气呵成
+# 或手动：npx wrangler pages deploy dist/ --project-name=quiz-app
+```
+
+### 15.4 关键约定与陷阱
+
+| 事项 | 说明 |
+|------|------|
+| **项目名 ≠ 域名** | CF Pages 项目名是 `quiz-app`，域名是 `quiz-app-8q3.pages.dev`。部署时 `--project-name=quiz-app` |
+| **不 commit 机密** | `.gitignore` 已保护 `.env*.local` / `.env.cf` / `.env.normalize` / `raw_docx.txt` / `deploy-cf.sh` |
+| **raw_docx.txt** | 真实考试数据，已从 git 历史彻底抹除。有该文件时集成测试跑 16 条，没有时跳过错 |
+| **测试踩坑** | Vitest 4 + jsdom 下 Dexie 初始化会导致 worker crash。组件测试用 Playwright E2E 代替 |
+| **SW 更新** | NetworkFirst + autoUpdate。部署后用户需点蓝色提示条「刷新」激活新版本 |
+| **Windows 特性** | git-bash 环境。`python3=3.13` / `python=3.11`。MCP windows 工具可用 |
+| **CF token** | 存于 `.env.cf` 和 shell 环境变量中。当前 token 53 字符（`cfat_` 开头） |
+
+### 15.5 常见问题速查
+
+**Q: 部署报错 `Project not found`？**
+A: 检查 `--project-name` — 是 `quiz-app` 不是 `quiz-app-8q3`。
+
+**Q: 部署报错 `CLOUDFLARE_API_TOKEN` 找不到？**
+A: 先 `export CLOUDFLARE_API_TOKEN=***（值从 .env.cf 中取）。
+
+**Q: AI 格式整理无效？**
+A: 本地开发需要 `.env.normalize` 文件含有效 DeepSeek/OpenRouter key。部署版需在 CF Pages 后台设 `AI_NORMALIZE_API_KEY`（Secret）。
+
+**Q: 集成测试报 `raw_docx.txt not found`？**
+A: 该测试需要真实考试数据文件放在项目根目录。没有也能跑其余 137 条测试。
+
+**Q: 想从零 clone 这个项目？**
+A: 确保你有 CF token 才能部署。本地开发只需 `npm install && npm run dev`。
 
 ---
 
