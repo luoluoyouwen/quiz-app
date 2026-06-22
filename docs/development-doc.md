@@ -914,8 +914,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
 | 需要什么 | 在哪找 | 说明 |
 |----------|--------|------|
-| `CLOUDFLARE_API_TOKEN` | `.env.cf`（gitignored，仅本地磁盘） | 部署到 CF Pages 用。bash 里 `export` 后再执行 `bash deploy-cf.sh` |
-| `CLOUDFLARE_ACCOUNT_ID` | 同上 | `[redacted-cloudflare-account]` |
+| `CLOUDFLARE_API_TOKEN` | `.env.cf`（gitignored） | 部署到 CF Pages 用。bash 里 `export` 后再执行 `bash deploy-cf.sh` |
+| `CLOUDFLARE_ACCOUNT_ID` | 同上 | 与 token 在同一文件 |
 | `AI_NORMALIZE_API_KEY` | `.env.normalize`（gitignored） | 本地 AI 格式整理用 DeepSeek key。模板见 `.env.normalize.example` |
 | 运行环境 | Windows 10 + git-bash | `npm`/`npx` 可用，`wrangler` 通过 npx |
 
