@@ -173,9 +173,13 @@ export default function Practice() {
       : Number(bankId),
   );
 
-  const allQuestions: Question[] | undefined = cloudFlag
-    ? (rawQuestions ? mapCloudQuestions(syntheticBankId, rawQuestions as CloudQuestion[], cloudQuestionIdMap.current) : undefined)
-    : (rawQuestions as Question[] | undefined);
+  const allQuestions: Question[] | undefined = useMemo(() => {
+    if (!rawQuestions) return undefined;
+    if (cloudFlag) {
+      return mapCloudQuestions(syntheticBankId, rawQuestions as CloudQuestion[], cloudQuestionIdMap.current);
+    }
+    return rawQuestions as Question[];
+  }, [cloudFlag, rawQuestions, syntheticBankId]);
 
   // ── 断点续刷 ──
   const [resumeState, setResumeState] = useState<ResumeData | null | undefined>(undefined);

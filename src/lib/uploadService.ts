@@ -41,7 +41,7 @@ export async function uploadBankToSupabase(
   // 2. 批量插入 questions — 每次最多 500 条
   const questionRows = questions.map((q, i) => ({
     bank_id: bank.id,
-    type: q.type,
+    type: q.type,  // 数据库 CHECK 约束已包含 nofill
     content: q.content,
     options: q.options || null,
     answer: q.answer,
@@ -104,6 +104,7 @@ export async function getBankByHash(contentHash: string): Promise<{
 export async function syncCloudBankToLocal(
   bankId: string,
   bankName: string,
+  userId: string,
   localDexieBankId?: number,
 ): Promise<number> {
   const { data: questions, error } = await supabase
@@ -129,6 +130,7 @@ export async function syncCloudBankToLocal(
       localBankId = existingByUuid.id!;
     } else {
       localBankId = await db.banks.add({
+        userId,
         name: bankName,
         description: `☁️ ${bankId}`,  // 存储 cloud UUID，离线时可反查
         createdAt: new Date(),

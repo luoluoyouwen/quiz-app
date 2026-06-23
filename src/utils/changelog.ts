@@ -12,9 +12,51 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '2.2.0';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '2.2.0',
+    date: '2026-06-23',
+    title: '云端统计图表 / 多账号隔离 / UI 对齐',
+    changes: [
+      '📈 云端题库详情页支持练习统计卡片 + 成绩趋势折线图（从 user_progress 聚合）',
+      '🔒 多账号数据隔离：同一设备登录不同账号，本地缓存、练习记录互不干扰',
+      '🏷️ 无空填空题（nofill）数据库 CHECK 约束 + 上传类型保留',
+      '🗑️ 离线缓存的云题库卡片增加删除按钮',
+      '🔧 修复 Vite 生产构建 TDZ（Cannot access M before initialization）：静态 db import 改为动态 await import()',
+      '🎨 UI 对齐：首页题库卡片数值中线对齐、顶部栏账号名/退出/深色按钮对齐、管理后台统计卡片居中可点击',
+    ],
+  },
+  {
+    version: '2.1.0',
+    date: '2026-06-23',
+    title: '多账号隔离 / 类型修复 / 体验补全',
+    changes: [
+      '🔒 多账号数据隔离：同一设备登录不同账号，本地缓存、练习记录相互独立',
+      '🔧 修复 React #185 无限渲染崩溃（useMemo 稳化数组引用）',
+      '🏷️ 修复填空/无空填空（nofill）分类错误：单空格填空恢复检测 + Supabase CHECK 约束增加 nofill',
+      '🗑️ 云端缓存可删除：离线缓存的云题库卡片增加红色删除按钮',
+      '📖 无空填空题（nofill）独立显示在详情页题型统计和筛选 Tab',
+      '🛡️ ErrorBoundary：全局错误兜底，白屏时显示错误信息 + 刷新按钮',
+      '🔄 题库总览页骨架屏加载，避免空白等待',
+    ],
+  },
+  {
+    version: '2.0.0',
+    date: '2026-06-23',
+    title: '🎉 重大升级：Supabase 云端后端 — 账号体系 / 题库上云 / 进度同步 / 管理后台',
+    changes: [
+      '🔐 账号系统：工号(SMYH)+密码登录注册，90 天免登录持久化',
+      '☁️ 题库上云：上传自动同步到 Supabase，全员共享，哈希去重防重复',
+      '✅ 题库审核：上传后标记 pending，管理员批准后全员可见',
+      '🔄 进度同步：多端刷题进度实时同步，联网自动回写，sendBeacon 兜底',
+      '📴 在线/离线双模式：有网走云端，没网读本地缓存，离线 pending 联网自动回写',
+      '🛡️ 管理后台：系统概览（统计卡片）、题库审核（批准/驳回）、用户管理（角色/密码重置）',
+      '🔧 CF Pages Function 反向代理 Supabase API，国内直连可用',
+      '📱 管理后台移动端适配：表格横向滚动、分页缩小',
+    ],
+  },
   {
     version: '1.8.0',
     date: '2026-06-22',

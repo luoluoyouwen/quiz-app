@@ -44,6 +44,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // 登录迁移：现有未归属题库分配给当前用户
+  const migrateLocalBanks = async (userId: string) => {
+    try {
+      const { db } = await import('../db');
+      const unowned = await db.banks
+        .filter(b => !b.userId || b.userId === '')
+        .toArray();
+      for (const bank of unowned) {
+        await db.banks.update(bank.id!, { userId });
+      }
+      if (unowned.length > 0) {
+        console.log(`[Auth] Migrated ${unowned.length} unowned banks to user ${userId}`);
+      }
+    } catch {
+      // 静默失败 — 迁移不是关键路径
+    }
+  };
+
   // 监听 Auth 状态
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
       if (currentUser) {
         fetchProfile(currentUser.id);
+        migrateLocalBanks(currentUser.id);
       }
       setLoading(false);
     }).catch((err) => {
@@ -78,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentUser);
         if (currentUser) {
           fetchProfile(currentUser.id);
+          migrateLocalBanks(currentUser.id);
         } else {
           setProfile(null);
         }

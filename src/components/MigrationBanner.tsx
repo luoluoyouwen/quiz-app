@@ -66,7 +66,7 @@ export default function MigrationBanner({ user }: MigrationBannerProps) {
           const myBank = existingBanks.find(b => b.name === bank.name);
           if (myBank) {
             // 把云端题目同步到本地（如果本地还没有）
-            const added = await syncCloudBankToLocal(myBank.id, bank.name, bank.id);
+            const added = await syncCloudBankToLocal(myBank.id, bank.name, user.id, bank.id);
             if (added > 0) migrated++;
           }
           continue;

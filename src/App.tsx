@@ -104,26 +104,27 @@ function AppLayout() {
             {location.pathname.startsWith('/bank/') && '题库详情'}
             {location.pathname.startsWith('/practice/') && '刷题练习'}
           </Text>
-          <Space size="middle">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {profile?.role === 'admin' ? (
-              <Button type="link" size="small" onClick={() => navigate('/admin')} style={{ padding: 0, height: 'auto', fontSize: 13 }}>
+              <Button type="link" size="small" onClick={() => navigate('/admin')} style={{ padding: 0, height: 'auto', fontSize: 13, lineHeight: '24px' }}>
                 {username} 🛡️
               </Button>
             ) : (
-              <Text type="secondary" style={{ fontSize: 13 }}>
+              <div style={{ lineHeight: '24px', fontSize: 13, color: isDark ? '#8c8c8c' : '#999' }}>
                 {username}
-              </Text>
+              </div>
             )}
-            <Button type="text" size="small" onClick={signOut}>
+            <Button type="text" size="small" onClick={signOut} style={{ lineHeight: '24px' }}>
               退出
             </Button>
             <Button
             type="text"
-            icon={isDark ? <SunOutlined style={{ fontSize: 18, color: '#faad14' }} /> : <MoonOutlined style={{ fontSize: 18 }} />}
+            size="small"
+            icon={isDark ? <SunOutlined style={{ fontSize: 16, color: '#faad14' }} /> : <MoonOutlined style={{ fontSize: 16 }} />}
             onClick={toggleTheme}
             style={{ color: isDark ? '#e8e8e8' : undefined }}
           />
-          </Space>
+          </div>
         </Header>
         <Content style={{ background: contentBg, minHeight: 'calc(100vh - 48px)' }}>
           <ErrorBoundary>

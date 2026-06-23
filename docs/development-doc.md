@@ -192,12 +192,12 @@
 ┌──────────────┐       ┌──────────────────┐
 │  QuestionBank │──1:N──│    Question      │
 │  id           │       │  id              │
-│  name         │       │  bankId (FK)     │
-│  description  │       │  type            │
-│  createdAt    │       │  content         │
-│  lastPracticed│       │  options?        │
-└──────────────┘       │  answer          │
-                       │  answers?[]      │
+│  userId       │       │  bankId (FK)     │
+│  name         │       │  type            │
+│  description  │       │  content         │
+│  createdAt    │       │  options?        │
+│  lastPracticed│       │  answer          │
+└──────────────┘       │  answers?[]      │
                        │  explanation?    │
                        └──────────────────┘
                               │ 1:N
@@ -701,7 +701,7 @@ VitePWA({
 | `StatsChart.test.tsx` | 5 | 数据排序/20条上限/空数据 |
 | `ThemeContext.test.tsx` | 7 | 深色模式切换/持久化/localStorage 异常处理 |
 
-总计：**153 个测试用例**（vitest：137 单元 + 16 集成）
+总计：**142 个测试用例**（vitest：125 单元 + 17 集成）
 
 ### 10.2 判题测试覆盖矩阵
 
@@ -1020,7 +1020,10 @@ CREATE POLICY "progress_all" ON user_progress FOR ALL USING (
 |------|------|
 | `supabase-migration-p1-init.sql` | 初始表结构 + profiles trigger |
 | `supabase-migration-p3-review.sql` | 添加 review_status + RLS |
+| `supabase-migration-nofill.sql` | 添加 nofill 到 questions CHECK 约束 + 修复已有数据 |
 | RPC: `admin_reset_password` | 密码重置函数（手动执行） |
+
+**补丁已修复（2026-06-23）：** 已执行上述 SQL + 移除代码侧的 `nofill→fill` 转换。新上传直接保留 `nofill` 类型。
 
 ---
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, Row, Col, Statistic, Table, Button, Tag, Space, Tabs, Typography, message, Modal, Input, Popconfirm, Badge, Tooltip } from 'antd';
 import {
   TeamOutlined,
@@ -7,6 +7,7 @@ import {
   ClockCircleOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  DeleteOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   UserSwitchOutlined,
@@ -40,7 +41,7 @@ interface UserProfile {
 
 // ─── Overview Tab ─────────────────────────────────────────────────
 
-function OverviewTab() {
+function OverviewTab({ onNavigate }: { onNavigate?: (key: string) => void }) {
   const [stats, setStats] = useState({ users: 0, banks: 0, questions: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -77,7 +78,7 @@ function OverviewTab() {
       </div>
       <Row gutter={[16, 16]}>
         <Col xs={12} sm={6}>
-          <Card loading={loading} hoverable>
+          <Card loading={loading} hoverable onClick={() => onNavigate?.('users')} style={{ cursor: 'pointer' }} styles={{ body: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100 } }}>
             <Statistic
               title="总用户数"
               value={stats.users}
@@ -87,7 +88,7 @@ function OverviewTab() {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card loading={loading} hoverable>
+          <Card loading={loading} hoverable onClick={() => onNavigate?.('review')} style={{ cursor: 'pointer' }} styles={{ body: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100 } }}>
             <Statistic
               title="题库总数"
               value={stats.banks}
@@ -97,7 +98,7 @@ function OverviewTab() {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card loading={loading} hoverable>
+          <Card loading={loading} hoverable styles={{ body: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100 } }}>
             <Statistic
               title="题目总数"
               value={stats.questions}
@@ -107,7 +108,7 @@ function OverviewTab() {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card loading={loading} hoverable>
+          <Card loading={loading} hoverable onClick={() => onNavigate?.('review')} style={{ cursor: 'pointer' }} styles={{ body: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100 } }}>
             <Badge count={stats.pending} size="small" offset={[6, -4]}>
               <Statistic
                 title="待审核题库"
@@ -185,7 +186,24 @@ function BankReviewTab() {
     }
   };
 
-  const pendingColumns = [
+  const handleDeleteBank = async (bankId: string, bankName: string) => {
+    try {
+      const { error } = await supabase
+        .from('question_banks')
+        .delete()
+        .eq('id', bankId);
+
+      if (error) throw error;
+
+      message.success(`题库「${bankName}」已删除`);
+      fetchBanks();
+    } catch (err) {
+      console.error('Failed to delete bank:', err);
+      message.error('删除失败');
+    }
+  };
+
+  const pendingColumns = useMemo(() => [
     {
       title: '题库名称',
       dataIndex: 'name',
@@ -247,12 +265,21 @@ function BankReviewTab() {
               驳回
             </Button>
           </Popconfirm>
+          <Popconfirm
+            title={`确认删除题库「${record.name}」？题目也将永久删除，不可恢复。`}
+            onConfirm={() => handleDeleteBank(record.id, record.name)}
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+          </Popconfirm>
         </Space>
       ),
     },
-  ];
+  ], [updateStatus, handleDeleteBank]);
 
-  const reviewedColumns = [
+  const reviewedColumns = useMemo(() => [
     {
       title: '题库名称',
       dataIndex: 'name',
@@ -285,9 +312,25 @@ function BankReviewTab() {
         </Tag>
       ),
     },
-  ];
+    {
+      title: '操作',
+      key: 'actions',
+      width: 80,
+      render: (_: unknown, record: BankWithCreator) => (
+        <Popconfirm
+          title={`确认删除题库「${record.name}」？题目也将永久删除，不可恢复。`}
+          onConfirm={() => handleDeleteBank(record.id, record.name)}
+          okText="确认删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+        >
+          <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+        </Popconfirm>
+      ),
+    },
+  ], [handleDeleteBank]);
 
-  const tabItems = [
+  const tabItems = useMemo(() => [
     {
       key: 'pending',
       label: (
@@ -322,7 +365,7 @@ function BankReviewTab() {
         />
       ),
     },
-  ];
+  ], [pendingBanks, reviewedBanks, loading, pendingColumns, reviewedColumns]);
 
   return (
     <>
@@ -537,6 +580,7 @@ function UserManagementTab() {
 
 export default function AdminDashboard() {
   const { profile } = useAuth();
+  const [activeTab, setActiveTab] = useState('overview');
 
   const tabItems = [
     {
@@ -546,7 +590,7 @@ export default function AdminDashboard() {
           <DatabaseOutlined /> 系统概览
         </span>
       ),
-      children: <OverviewTab />,
+      children: <OverviewTab onNavigate={setActiveTab} />,
     },
     {
       key: 'review',
@@ -580,7 +624,7 @@ export default function AdminDashboard() {
         </Text>
       </div>
 
-      <Tabs defaultActiveKey="overview" items={tabItems} />
+      <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
     </div>
   );
 }

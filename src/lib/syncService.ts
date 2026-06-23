@@ -1,5 +1,4 @@
 import { supabase } from './supabase';
-import { db } from '../db';
 
 export interface ProgressRecord {
   questionId: string;
@@ -58,6 +57,7 @@ async function cacheRecords(
   userId: string,
   syncStatus: 'pending' | 'synced',
 ): Promise<void> {
+  const { db } = await import('../db');
   const now = new Date();
   for (const r of records) {
     await db.userProgress.put({
@@ -108,6 +108,7 @@ export async function fetchBankProgress(
  * 同步本地 pending 记录到 Supabase
  */
 export async function syncPendingProgress(userId: string): Promise<number> {
+  const { db } = await import('../db');
   const pending = await db.userProgress
     .where('syncStatus')
     .equals('pending')
@@ -192,4 +193,64 @@ export function submitProgressBeacon(
     `${supabaseUrl}/rest/v1/user_progress`,
     blob,
   );
+}
+
+/**
+ * 从 Supabase 拉取云端题库的完整练习记录，按时间分组为"会话"
+ * 每次提交的一组题目（30 分钟内）视为一次练习会话
+ */
+export interface CloudSession {
+  id: number;
+  bankId: string;
+  totalQuestions: number;
+  correctAnswers: number;
+  wrongAnswers: number;
+  date: Date;
+}
+
+export async function fetchCloudSessions(
+  userId: string,
+  bankId: string,
+): Promise<CloudSession[]> {
+  const { data, error } = await supabase
+    .from('user_progress')
+    .select('is_correct, attempted_at')
+    .eq('user_id', userId)
+    .eq('bank_id', bankId)
+    .order('attempted_at', { ascending: true });
+
+  if (error) throw new Error(`拉取云端练习记录失败: ${error.message}`);
+  if (!data || data.length === 0) return [];
+
+  // 按时间邻近分组：30 分钟内连续提交视为同一会话
+  const grouped: { correct: number; wrong: number; date: Date }[] = [];
+  let curCorrect = 0;
+  let curWrong = 0;
+  let curDate = new Date(data[0].attempted_at);
+
+  for (const record of data) {
+    const d = new Date(record.attempted_at);
+    if (d.getTime() - curDate.getTime() > 30 * 60 * 1000) {
+      grouped.push({ correct: curCorrect, wrong: curWrong, date: curDate });
+      curCorrect = 0;
+      curWrong = 0;
+      curDate = d;
+    }
+    if (record.is_correct) curCorrect++;
+    else curWrong++;
+  }
+  grouped.push({ correct: curCorrect, wrong: curWrong, date: curDate });
+
+  return grouped.map((s, i) => ({
+    id: i + 1,
+    bankId,
+    totalQuestions: s.correct + s.wrong,
+    correctAnswers: s.correct,
+    wrongAnswers: s.wrong,
+    startedAt: s.date,
+    score: s.correct + s.wrong > 0
+      ? Math.round((s.correct / (s.correct + s.wrong)) * 100)
+      : 0,
+    date: s.date,
+  }));
 }
