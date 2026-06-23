@@ -38,25 +38,37 @@
 
 | 功能 | 说明 |
 |------|------|
-| **题库管理** | 创建/删除题库、按题型统计 |
-| **文件导入** | 支持 .txt / .json / .csv / .docx / .md 五种格式 |
-| **AI 格式整理** | DOCX 导入时可选 AI 归一化排版 |
-| **五类题型** | 单选题、多选题、填空题、判断题、简答题 |
-| **自动挖空** | 导入填空题时自动将答案文本替换为 `____` |
-| **背题模式** | 全题型支持：显示答案→自评"记住了/没记住" |
-| **题目搜索** | 题库内实时搜索题目内容、答案、选项 |
-| **错题本** | 答错自动收集，随错随记，支持错题重刷 |
-| **断点续刷** | 按题型独立保存进度，24 小时内可继续 |
-| **深色模式** | 右上角切换，偏好持久化 |
-| **练习统计** | 按题型聚合正确率、薄弱点分析 |
-| **PWA 离线** | 安装到主屏幕后完全离线可用 |
-| **自动更新** | Service Worker autoUpdate + 蓝色提示条刷新 |
+| 🔐 **账号系统** | 工号(SMYH)+密码登录/注册，90 天免登录持久化 |
+| 📂 **题库管理** | 创建/删除题库、按题型统计、哈希去重 |
+| ☁️ **云端上传** | 登录后上传自动同步到 Supabase，全员共享 |
+| ✅ **题库审核** | 上传后标记 pending，管理员批准后全员可见，驳回仅上传者和管理员可见 |
+| 🔄 **云端进度同步** | 多端刷题进度实时同步，联网自动回写（sendBeacon 兜底） |
+| 📴 **在线/离线双模式** | 有网走云端，没网读本地缓存，联网后 pending 进度自动回写 |
+| 🛡️ **管理后台** | 系统概览（统计卡片）、题库审核（批准/驳回）、用户管理（角色/密码重置） |
+| 📥 **文件导入** | 支持 .txt / .json / .csv / .docx / .md 五种格式 |
+| 🤖 **AI 格式整理** | DOCX 导入时可选 AI 归一化排版（双模式：本地直连 / CF 代理） |
+| 🖼️ **DOCX 配图自动提取** | 导入 DOCX 时自动提取内嵌图片，刷题/背题/详情均展示（点击放大） |
+| 🔢 **五类题型** | 单选题、多选题、填空题、判断题、简答题 |
+| ✏️ **自动挖空** | 导入填空题时自动将答案文本替换为 `____`，支持 `、` 枚举多空 |
+| 🧠 **背题模式** | 全题型支持：显示答案→自评"记住了/没记住" |
+| 🚀 **一键开刷** | 主按钮直接进全部题型，齿轮图标选特定题型/随机抽 N 题 |
+| 📊 **统计图表** | Recharts 折线图展示最近 20 次正确率趋势，统计卡片可点击直达对应题型 |
+| 🔍 **题目搜索** | 题库内实时搜索题目内容、答案、选项 |
+| ❌ **错题本** | 答错自动收集，随错随记，支持错题重刷 |
+| ⏯️ **断点续刷** | 按题型独立保存进度，离开后 24 小时内可继续 |
+| 📱 **左右滑动** | 右滑上一题、左滑下一题（touch handlers） |
+| 📋 **题目导航网格** | 浮动按钮弹出，已答绿底、当前题蓝底、未答灰底、云端已答金色边框 |
+| 🏁 **练习结果页** | 完成后显示正确率，绿≥80%/黄≥50%/红<50% 色标 + 错题回顾列表 |
+| 🌙 **深色模式** | 右上角切换，偏好持久化到 localStorage |
+| 📴 **PWA 离线** | 安装到主屏幕后完全离线可用，自定义 Service Worker（NetworkFirst） |
+| 🔄 **自动更新** | Service Worker autoUpdate + 蓝色提示条刷新 |
 
 ### 1.3 目标用户画像
 
-- 备考学生/考证人士：导入 DOCX/TXT 题库后离线刷题
+- 备考学生/考证人士：导入 DOCX/TXT 题库后离线刷题，多端进度同步
 - 化工/工程类专业：支持化工题库特有的填空题多空格格式
-- 手机 Safari/Chrome 用户：PWA 安装后像原生 App 一样使用
+- 企业内部培训：工号登录，管理员统一管控题库审核与发布
+- 手机 Safari/Chrome 用户：PWA 安装后像原生 App 一样使用，断网续刷
 
 ---
 
@@ -1153,15 +1165,15 @@ quiz-app/
 
 ### P4 — 后端升级（已完成 P1-P5）
 
-以下为本次后端升级（2026-06-23）已完成的全部功能：
+以下为本次后端升级（2026-06-23）已完成的全部功能。**原有路线图中的 F-08（云端同步）和 F-09（数据库迁移）已被此升级覆盖。**
 
 | 阶段 | 内容 | 关键文件 |
 |------|------|---------|
-| P1 | Supabase 集成、Auth、表结构、CF 代理 | `supabase.ts`, `AuthContext.tsx`, `Login.tsx`, `[[catchall]].ts` |
-| P2 | Header 用户信息、AdminRoute 守卫、条件菜单 | `App.tsx`, `AdminRoute.tsx` |
-| P3 | 题库上云：上传自动建库、哈希去重、审核机制 | `uploadService.ts`, `hash.ts`, `MigrationBanner.tsx`, SQL 迁移 |
-| P4 | 进度同步：多端合并、离线回写、beacon 兜底 | `syncService.ts`, `db.ts` (v2) |
-| P5 | 管理员后台：概览/审核/用户管理/密码重置 RPC | `AdminDashboard.tsx`, 密码重置 RPC SQL |
+| P1 | Supabase 项目创建、Auth 配置、5 张表 + RLS + 触发器、CF Pages Function 反向代理（`[[catchall]].ts`）、Supabase SDK 集成、登录/注册页、密钥使用 publishable/secret 新体系 | `supabase.ts`, `AuthContext.tsx`, `Login.tsx`, `[[catchall]].ts`, `supabase-migration-p1-init.sql` |
+| P2 | Header 用户信息（工号+🛡️+退出）、AdminRoute 路由守卫、条件菜单（admin 可见「后台管理」）、右上角工号可点击进后台（移动端友好） | `App.tsx`, `AdminRoute.tsx` |
+| P3 | 上传自动建库（ImportModal 双模式：新建/追加）、1MB 文件限制、云端题库列表（fetchVisibleBanks + 本地合并）、云端题库详情+练习（UUID ID 映射）、哈希去重（SHA-256 content_hash）、审核机制（review_status + RLS）、所有用户可上传、本地题库一键迁移（紫色横幅）、移除创建题库按钮 | `uploadService.ts`, `hash.ts`, `MigrationBanner.tsx`, `ImportModal.tsx`, `Home.tsx`, `BankDetail.tsx`, `Practice.tsx`, `supabase-migration-p3-review.sql` |
+| P4 | 进度批量提交（submitPracticeProgress）、云端拉取进度（fetchBankProgress）、离线 pending 自动回写（syncPendingProgress）、联网自动同步（registerAutoSync）、sendBeacon 兜底提交、Dexie v2 升级（userProgress 表）、离线缓存题库区展示、题号网格云端已答金色标记、首页统计去重（排除 ☁️ 缓存条目） | `syncService.ts`, `db.ts`, `Practice.tsx`, `Home.tsx`, `App.tsx` |
+| P5 | 管理后台三 Tab（系统概览/题库审核/用户管理）、批准/驳回 pending 题库、角色管理（设/取消管理员）、密码重置 RPC（绕过 Auth Admin API 的 sb_secret 限制）、移动端适配（表格横向滚动） | `AdminDashboard.tsx`, `App.tsx`, 密码重置 RPC SQL |
 
 ### P0 — 核心体验优化（优先级最高）
 
