@@ -16,6 +16,8 @@ import { pickRandomQuestions } from '../utils/quiz/engine';
 import StatsChart from '../components/StatsChart';
 import { supabase } from '../lib/supabase';
 import { isCloudId } from '../lib/uploadService';
+import { fetchCloudSessions, type CloudSession } from '../lib/syncService';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 
@@ -57,6 +59,7 @@ export default function BankDetail() {
   const navigate = useNavigate();
   const isCloud = id ? isCloudId(id) : false;
   const bankId = isCloud ? id! : String(Number(id));
+  const { user } = useAuth();
 
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [practiceOpen, setPracticeOpen] = useState(false);
@@ -85,8 +88,9 @@ export default function BankDetail() {
   );
 
   const bank = isCloud ? cloudBank : localBank;
-  const questions: Question[] = isCloud
-    ? cloudQuestions.map((q, i) => ({
+  const questions: Question[] = useMemo(() => {
+    if (isCloud) {
+      return (cloudQuestions || []).map((q, i) => ({
         id: -(i + 1),
         bankId: 0,
         type: q.type as QuestionType,
@@ -95,8 +99,10 @@ export default function BankDetail() {
         answer: q.answer,
         answers: q.answers || undefined,
         explanation: q.explanation,
-      }))
-    : (localQuestions || []);
+      }));
+    }
+    return localQuestions || [];
+  }, [isCloud, cloudQuestions, localQuestions]);
 
   const loading = isCloud ? cloudLoading : (localBank === undefined);
 
@@ -121,6 +127,19 @@ export default function BankDetail() {
     });
   }, [isCloud, id]);
 
+  // 云端题库：拉取练习记录用于统计
+  const [cloudSessions, setCloudSessions] = useState<CloudSession[]>([]);
+  useEffect(() => {
+    if (!isCloud || !id || !user) return;
+    if (cloudQuestions.length === 0 && cloudBank === null) return;
+    fetchCloudSessions(user.id, id).then(setCloudSessions).catch(() => {
+      // 静默失败 — 统计非关键路径
+    });
+  }, [isCloud, id, user, cloudQuestions, cloudBank]);
+
+  // 有效会话：本地题库走 Dexie，云端走 Supabase
+  const effectiveSessions = isCloud ? (cloudSessions as any[]) : (sessions || []);
+
   const displayQuestions = questions;
 
   const filteredQuestions = useMemo(() => {
@@ -141,13 +160,13 @@ export default function BankDetail() {
   }, [displayQuestions, filterType, searchTerm]);
 
   const stats = useMemo(() => {
-    if (!sessions || sessions.length === 0) return null;
-    const total = sessions.reduce((s, sess) => s + sess.totalQuestions, 0);
-    const correct = sessions.reduce((s, sess) => s + sess.correctAnswers, 0);
-    const wrong = sessions.reduce((s, sess) => s + sess.wrongAnswers, 0);
+    if (!effectiveSessions || effectiveSessions.length === 0) return null;
+    const total = effectiveSessions.reduce((s: any, sess: any) => s + sess.totalQuestions, 0);
+    const correct = effectiveSessions.reduce((s: any, sess: any) => s + sess.correctAnswers, 0);
+    const wrong = effectiveSessions.reduce((s: any, sess: any) => s + sess.wrongAnswers, 0);
     const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
     return { total, correct, wrong, accuracy };
-  }, [sessions]);
+  }, [effectiveSessions]);
 
   // 云端题库的错误题目 ID（本地才有）
   const wrongQuestionIds = useLiveQuery(
@@ -359,13 +378,13 @@ export default function BankDetail() {
         </Col>
       </Row>
 
-      {/* Practice Stats - only for local banks */}
-      {!isCloud && stats && (
+      {/* Practice Stats */}
+      {stats && (
         <>
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col xs={12} sm={6}>
             <Card size="small">
-              <Statistic title="练习次数" value={sessions?.length || 0} />
+              <Statistic title="练习次数" value={effectiveSessions?.length || 0} />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
@@ -385,7 +404,7 @@ export default function BankDetail() {
           </Col>
         </Row>
         <Card size="small" title="成绩趋势" style={{ marginBottom: 24 }}>
-          <StatsChart sessions={sessions!} />
+          <StatsChart sessions={effectiveSessions} />
         </Card>
         </>
       )}
@@ -433,7 +452,7 @@ export default function BankDetail() {
               <Button icon={<CloudOutlined />} onClick={async () => {
                 try {
                   const { syncCloudBankToLocal } = await import('../lib/uploadService');
-                  const added = await syncCloudBankToLocal(id!, bank.name);
+                  const added = await syncCloudBankToLocal(id!, bank.name, user.id);
                   if (added > 0) {
                     message.success(`已缓存 ${added} 题到本地`);
                   } else {

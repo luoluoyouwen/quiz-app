@@ -153,7 +153,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
               if (existingName && contentHash) {
                 const bankInfo = await getBankByHash(contentHash);
                 if (bankInfo) {
-                  const added = await syncCloudBankToLocal(bankInfo.id, bankInfo.name);
+                  const added = await syncCloudBankToLocal(bankInfo.id, bankInfo.name, user.id);
                   message.success(`已同步 ${added} 题到本地`);
                 }
               }
@@ -173,7 +173,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
         message.success(`已上传 ${parsed.length} 题到云端，等待管理员审核后全员可见`);
 
         // 同步缓存到本地（断网可刷）
-        await syncCloudBankToLocal(result.bankId, finalName);
+        await syncCloudBankToLocal(result.bankId, finalName, user.id);
         setParsed([]);
         setFileName('');
         setParseError('');
@@ -185,6 +185,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
       let localBankId = bankId;
       if (!isAppend) {
         localBankId = await db.banks.add({
+          userId: user.id,
           name: bankName.trim(),
           description: '',
           createdAt: new Date(),

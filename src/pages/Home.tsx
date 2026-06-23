@@ -29,7 +29,10 @@ export default function Home() {
 
   const [cloudBanks, setCloudBanks] = useState<CloudBank[]>([]);
 
-  const banks = useLiveQuery(() => db.banks.toArray());
+  const banks = useLiveQuery(() => {
+    if (!user) return [];
+    return db.banks.where('userId').equals(user.id).toArray();
+  }, [user]);
 
   // 本地列表中排除云端缓存的（description 以 ☁️ 开头）
   const localBanks = useMemo(() =>
@@ -223,14 +226,14 @@ export default function Home() {
                         <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
                           {bank.description || '暂无描述'}
                         </Text>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                           <div style={{ flex: 1, textAlign: 'center' }}>
                             <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
-                            <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: '28px' }}>{count}</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>{count}</div>
                           </div>
                           <div style={{ flex: 1, textAlign: 'center' }}>
                             <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>上次练习</div>
-                            <div style={{ fontSize: 14, fontWeight: 500, lineHeight: '28px' }}>{formatDate(bank.lastPracticed)}</div>
+                            <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>{formatDate(bank.lastPracticed)}</div>
                           </div>
                         </div>
                       </>
@@ -251,7 +254,7 @@ export default function Home() {
                   <Tooltip title="缓存到本地" key="cache">
                     <CloudOutlined onClick={(e) => {
                       e.stopPropagation();
-                      handleCacheCloudBank(bank);
+                      handleCacheCloudBank(bank, user.id);
                     }} />
                   </Tooltip>,
                   <Tooltip title="开始刷题" key="practice">
@@ -272,14 +275,14 @@ export default function Home() {
                       <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
                         {bank.description || '云端题库'}
                       </Text>
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <div style={{ flex: 1, textAlign: 'center' }}>
                           <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
-                          <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: '28px' }}>{bank.question_count}</div>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>{bank.question_count}</div>
                         </div>
                         <div style={{ flex: 1, textAlign: 'center' }}>
                           <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>云端</div>
-                          <div style={{ fontSize: 14, fontWeight: 500, lineHeight: '28px' }}>
+                          <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>
                             {new Date(bank.created_at).toLocaleDateString('zh-CN')}
                           </div>
                         </div>
@@ -312,6 +315,12 @@ export default function Home() {
                           <RightCircleOutlined onClick={(e) => {
                             e.stopPropagation();
                             navigate(`/practice/${cloudUuid}`, { state: { isCloud: true } });
+                          }} />
+                        </Tooltip>,
+                        <Tooltip title="删除缓存" key="delete">
+                          <DeleteOutlined style={{ color: '#ff4d4f' }} onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteBank(bank);
                           }} />
                         </Tooltip>,
                       ]}
@@ -417,36 +426,56 @@ export default function Home() {
             <Tag color="blue" style={{ marginBottom: 4 }}>1</Tag>
             <Text strong>题库管理</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">首页右上角「上传题库」选择文件导入即可，支持 .txt/.json/.csv/.docx/.md 格式。每个卡片显示题目数和上次练习时间。蓝色边框为云端共享题库。</Text>
+              <Text type="secondary">上传：首页右上角「上传题库」导入文件，支持 .txt / .json / .csv / .docx / .md。</Text>
+              <br />
+              <Text type="secondary">云端新增自动缓存到本地（断网可刷）。离线缓存可删除 🗑️。</Text>
+              <br />
+              <Text type="secondary">卡片显示题目数、上次练习时间。蓝色边框 = 云端共享题库。</Text>
             </div>
           </div>
           <div>
             <Tag color="cyan" style={{ marginBottom: 4 }}>2</Tag>
-            <Text strong>题库详情</Text>
+            <Text strong>题库详情 &amp; 练习</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
               <Text type="secondary">
-                顶部统计区查看各题型数量 + 练习趋势图。
-                「开始练习」一键开刷全部题型，齿轮图标⚙选特定题型。
-                题目列表可展开查看完整题目与答案、按题型筛选、关键词搜索。
+                统计区展示各题型数量（含"无空填空题"）+ 成绩趋势折线图（本地/云端均支持）。
+              </Text>
+              <br />
+              <Text type="secondary">
+                「开始练习」一键开刷全部题型；齿轮图标 ⚙ 选特定题型 / 抽 N 题随机练习。
+              </Text>
+              <br />
+              <Text type="secondary">
+                题目列表可按题型筛选、关键词搜索、展开查看题目与答案。答对自动 1.5s 下一题。
               </Text>
             </div>
           </div>
           <div>
             <Tag color="orange" style={{ marginBottom: 4 }}>3</Tag>
-            <Text strong>刷题 &amp; 背题</Text>
+            <Text strong>背题 &amp; 错题重刷</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
               <Text type="secondary">
-                作答后点「提交答案」自动判对错，正确后 1.5s 自动跳转。
                 顶部「📖 背题」切换闪卡模式：显示答案 → 记住了 / 没记住。
-                支持左右滑动切换题目。
+              </Text>
+              <br />
+              <Text type="secondary">
+                详情页顶部横幅红色「错题重刷」按钮，一键练习所有错题（随错随记）。
+              </Text>
+              <br />
+              <Text type="secondary">
+                支持左右滑动切换题目，离开自动保存进度（断点续刷）。
               </Text>
             </div>
           </div>
           <div>
             <Tag color="gold" style={{ marginBottom: 4 }}>4</Tag>
-            <Text strong>云端题库</Text>
+            <Text strong>云端 &amp; 多端同步</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">上传文件后自动创建题库并同步到云端。点击云端题库的 ☁️ 图标可缓存到本地离线使用。</Text>
+              <Text type="secondary">上传文件后自动建库 → 同步到云端 ✅ → 管理员审核 → 全员可见。</Text>
+              <br />
+              <Text type="secondary">☁️ 云端题库可缓存到本地离线刷题。联网后进度自动回写（sendBeacon 兜底）。</Text>
+              <br />
+              <Text type="secondary">同一设备登录不同账号，本地数据互不干扰。</Text>
             </div>
           </div>
         </div>
@@ -456,10 +485,10 @@ export default function Home() {
 }
 
 // 辅助：缓存云端题库到本地
-async function handleCacheCloudBank(bank: CloudBank) {
+async function handleCacheCloudBank(bank: CloudBank, userId: string) {
   try {
     const { syncCloudBankToLocal } = await import('../lib/uploadService');
-    const added = await syncCloudBankToLocal(bank.id, bank.name);
+    const added = await syncCloudBankToLocal(bank.id, bank.name, userId);
     if (added > 0) {
       message.success(`已缓存 ${added} 题到本地`);
     } else {

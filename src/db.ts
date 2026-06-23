@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from 'dexie';
 
 export interface QuestionBank {
   id?: number;
+  userId: string;        // 所属用户，用于多账号隔离
   name: string;
   description: string;
   createdAt: Date;
@@ -73,6 +74,14 @@ db.version(1).stores({
 
 db.version(2).stores({
   banks: '++id, name, createdAt',
+  questions: '++id, bankId, type',
+  sessions: '++id, bankId, startedAt',
+  sessionAnswers: '++id, sessionId, questionId',
+  userProgress: '++id, userId, questionId, bankId, syncStatus',
+});
+
+db.version(3).stores({
+  banks: '++id, userId, name, createdAt',
   questions: '++id, bankId, type',
   sessions: '++id, bankId, startedAt',
   sessionAnswers: '++id, sessionId, questionId',

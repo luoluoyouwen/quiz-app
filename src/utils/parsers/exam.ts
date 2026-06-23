@@ -112,7 +112,8 @@ function tryParseFill(line: string): ParsedBlock | null {
       // Valid fill blank: char before the first space must NOT be enumeration punctuation
       // (e.g. "、氢气" is enumeration, "承 油膜不容易建立 ，会" is a fill blank)
       const punctBefore = /^[、，。；：,.;:：、，）)\]》」』>]$/;
-      if (before && !punctBefore.test(before) && term.length > 0 && !punctBefore.test(term[0])) {
+      if (before && !punctBefore.test(before) && term.length > 1 && !punctBefore.test(term[0])
+        && (pos < line.length ? line[pos] !== '、' : true)) {
         spans.push({ term, start: spaceStart, end: pos });
       }
     }
