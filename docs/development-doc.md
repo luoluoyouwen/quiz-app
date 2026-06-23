@@ -208,10 +208,30 @@
 
 | 表 | 说明 | 关键字段 |
 |-----|------|---------|
-| `profiles` | 用户扩展信息 | id (UUID PK, FK→auth.users), email, role (user/admin), can_upload, created_at |
+| `profiles` | 用户扩展信息 | id (UUID PK, FK→auth.users), email, role (user/admin), can_upload, upload_expires_at, created_at |
 | `question_banks` | 题库 | id (UUID PK), name, description, content_hash (UNIQUE), review_status (pending/approved/rejected), created_by, question_count, created_at |
 | `questions` | 题目 | id (UUID PK), bank_id (FK→question_banks), type, content, options (JSONB), answer, answers (JSONB), explanation, image_url, sort_order |
 | `user_progress` | 刷题进度 | id (UUID PK), user_id, question_id, bank_id, user_answer, is_correct, time_taken, attempted_at |
+| `upload_requests` | 上传权限申请（P3 已废弃，表保留但未使用） | id, user_id, status, created_at |
+
+**触发器：**
+- `handle_new_user` — 注册时自动创建 profiles 行（SECURITY DEFINER）
+
+**索引：**
+| 索引 | 表 | 说明 |
+|------|-----|------|
+| `idx_questions_bank` | questions | 按 bank_id 快速查询题目 |
+| `idx_progress_user` | user_progress | 按 user_id 查用户进度 |
+| `idx_progress_question` | user_progress | 按 question_id 合并进度 |
+| `idx_upload_req_status` | upload_requests | 按状态筛选申请（已废弃） |
+| `idx_banks_review_status` | question_banks | admin 按状态查待审核题库 |
+
+**辅助函数（均 SECURITY DEFINER 防 RLS 递归）：**
+
+| 函数 | 用途 |
+|------|------|
+| `is_admin()` | 检查当前用户 role='admin' |
+| `can_upload()` | 检查用户是否有上传权限（P3 后所有用户均可上传，函数保留未用） |
 
 **review_status 可见性规则：**
 | 状态 | 上传者 | 管理员 | 其他用户 |
@@ -808,11 +828,36 @@ AuthContext 监听 onAuthStateChange -> 更新 user + profile state
   └─ 内容去重：SHA-256(content_hash) 检测重复，重复则提示并直接缓存
 ```
 
-#### 上传入口统一
+#### 上传流程细节
 
+**1MB 文件限制：** `handleFileSelect` 入口处校验，超过 1MB 的文件被拦截并提示。
+
+**ImportModal 双模式：**
+- 从 Home 打开（未传 `bankId`）：显示题库名称输入框（默认用文件名），上传后创建新题库
+- 从 BankDetail 打开（`bankId` 已传）：标题显示「追加到题库名」，直接追加到当前题库
+
+**上传入口统一：**
 - **已登录用户**：上传只走云端，不创建本地 Dexie bank
 - **未登录用户**：保持旧逻辑（纯本地）
 - **云端缓存**：上传后自动 `syncCloudBankToLocal`，description 存 `☁️ {uuid}` 标记
+
+#### 本地题库一键迁移（P3 迁移横幅）
+
+紫色渐变横幅显示在首页顶部，条件：
+- `localStorage.getItem('cloud_migration_done')` 不存在
+- `db.banks.count() > 0`（存在本地题库）
+
+迁移流程：逐库读取题目 → 检查云端重复（按 name 粗略去重）→ 计算内容哈希 → 上传到 Supabase（`review_status='pending'`）→ 标记 localStorage
+
+「稍后再说」关闭横幅（不设标记，下次刷新仍显示）。
+
+#### 审核机制变更
+
+| 之前（P1-P2） | 之后（P3+） |
+|------|------|
+| 有上传权限检查 + 审批申请流程 | **所有登录用户均可上传**，标记 `review_status='pending'` |
+| `can_upload` / `upload_expires_at` 字段控制 | 两字段保留但不再使用 |
+| upload_requests 表记录申请 | 表保留但不再写入 |
 
 ### 11.5 进度同步
 
@@ -832,6 +877,18 @@ AuthContext 监听 onAuthStateChange -> 更新 user + profile state
         └─ 绕过 supabase-js，直 POST Supabase REST API
 ```
 
+#### 核心服务函数（`src/lib/syncService.ts`）
+
+| 函数 | 说明 |
+|------|------|
+| `submitPracticeProgress(records, userId)` | 批量提交进度：在线写 Supabase + 缓存 Dexie；离线写 Dexie（pending） |
+| `fetchBankProgress(userId, bankId)` | 从 Supabase 拉取某题库全部进度 |
+| `syncPendingProgress(userId)` | 读取本地所有 pending 记录 → 批量写入 Supabase → 标记 synced |
+| `registerAutoSync(userId)` | 监听 `window.online` 事件，联网自动回写；启动时立即尝试一次；返回 unregister 函数 |
+| `submitProgressBeacon(records, userId)` | 页面关闭时兜底提交，用 `navigator.sendBeacon` 直 POST Supabase REST API |
+
+**Dexie 版本迁移：** `db.version(2)` 安全升级，新增 `userProgress` 表（含 `syncStatus` 字段 `'pending'` / `'synced'`），Dexie 自动处理 schema 迁移，不影响现有数据。
+
 #### 云端进度拉取
 
 进入练习页时：
@@ -846,9 +903,25 @@ AuthContext 监听 onAuthStateChange -> 更新 user + profile state
 | 功能 | 实现 |
 |------|------|
 | 系统概览 | 四个统计卡片（用户数/题库数/题目数/待审核数） |
-| 题库审核 | 待审核列表 -> 批准/驳回（UPDATE review_status）|
-| 用户管理 | 用户列表 -> 角色管理（UPDATE profiles.role）+ 密码重置 |
-| 密码重置 | `supabase.rpc('admin_reset_password')` -> SECURITY DEFINER 函数 -> 直接操作 `auth.users` |
+| 题库审核 | 待审核列表（pending Tab）→ 批准/驳回（UPDATE review_status）；已审核列表（reviewed Tab）只读 |
+| 用户管理 | 用户列表 → 角色管理（UPDATE profiles.role）+ 密码重置弹窗 |
+| 密码重置 | `supabase.rpc('admin_reset_password')` → SECURITY DEFINER 函数 → 直接操作 `auth.users` |
+
+**移动端适配：**
+- 三个 Table 均设置 `scroll={{ x: 'max-content' }}`，窄屏可横向滑动
+- 分页尺寸缩为 `size: 'small'`，节省纵向空间
+- 容器 padding 缩为 `12px 16px`
+
+**密码校验统一：**
+| 位置 | 规则 |
+|------|------|
+| 注册页 placeholder | 至少 8 位，含字母+数字 |
+| 注册页 `validatePassword()` | 8 位 + `/[a-zA-Z]/` + `/\d/` |
+| 后台改密码弹窗提示 | 至少 8 位，需包含字母和数字 |
+| 后台改密码前端校验 | 8 位 + 字母/数字正则 |
+| SQL RPC 校验 | 8 位 + `!~ '[a-zA-Z]'` + `!~ '[0-9]'` |
+
+**废弃文件：** `functions/api/admin/reset-password.ts` — 最初采用 CF Pages Function + SERVICE_ROLE_KEY 方案，但因新版 `sb_secret_xxx` key 不兼容 Auth Admin API 而废弃，改用 RPC 方案。代码保留但不再使用。
 
 #### 密码重置 RPC 函数
 
@@ -1078,6 +1151,18 @@ quiz-app/
 
 ## 14. 未来升级路线
 
+### P4 — 后端升级（已完成 P1-P5）
+
+以下为本次后端升级（2026-06-23）已完成的全部功能：
+
+| 阶段 | 内容 | 关键文件 |
+|------|------|---------|
+| P1 | Supabase 集成、Auth、表结构、CF 代理 | `supabase.ts`, `AuthContext.tsx`, `Login.tsx`, `[[catchall]].ts` |
+| P2 | Header 用户信息、AdminRoute 守卫、条件菜单 | `App.tsx`, `AdminRoute.tsx` |
+| P3 | 题库上云：上传自动建库、哈希去重、审核机制 | `uploadService.ts`, `hash.ts`, `MigrationBanner.tsx`, SQL 迁移 |
+| P4 | 进度同步：多端合并、离线回写、beacon 兜底 | `syncService.ts`, `db.ts` (v2) |
+| P5 | 管理员后台：概览/审核/用户管理/密码重置 RPC | `AdminDashboard.tsx`, 密码重置 RPC SQL |
+
 ### P0 — 核心体验优化（优先级最高）
 
 | 编号 | 功能 | 说明 | 预期工作量 |
@@ -1094,8 +1179,8 @@ quiz-app/
 | F-05 | **题库导入持久化** | 用户关闭 App 后再开，无需重新导入，数据自动保留在 IndexedDB | ✅ 已完成 |
 | F-06 | **多题库隔离** | 创建多个题库，数据（题目、练习记录、错题）互不干扰 | ✅ 已完成 |
 | F-07 | **题库导出** | 将题库及其练习记录导出为 JSON 文件，支持导入恢复 | 1d |
-| F-08 | **数据云端同步** | 可选 iCloud/WebDAV 同步多设备进度 | 5d |
-| F-09 | **数据库版本迁移** | DB schema 升级策略，确保旧数据兼容 | 2d |
+| ~~F-08~~ | ~~数据云端同步~~ | ~~可选 iCloud/WebDAV 同步多设备进度~~ | ✅ **P1-P5 已完成：Supabase 云端同步** |
+| ~~F-09~~ | ~~数据库版本迁移~~ | ~~DB schema 升级策略，确保旧数据兼容~~ | ✅ **P1-P5 已完成：Dexie v2 迁移** |
 
 ### P1 — 增强题型支持
 
@@ -1105,7 +1190,7 @@ quiz-app/
 | F-11 | **拖拽排序题** | 将选项拖到正确顺序/位置 | 3d |
 | F-12 | **连线匹配题** | 左列-右列配对连线 | 3d |
 | F-13 | **AI 格式整理（代理模式）** | 可选调用 DeepSeek API 做 DOCX 格式归一化，部署版通过 CF Pages Function 代理 | ✅ 已完成 v1.1.5 |
-| F-14 | **图片嵌入题干** | 题干中显示图片（化工设备图、流程图） | 2d |
+| F-14 | **图片嵌入题干** | 题干中显示图片（化工设备图、流程图） | ✅ 已完成 v1.8.0 |
 
 ### P2 — 练习模式增强
 
@@ -1154,15 +1239,16 @@ quiz-app/
 ### 升级路线图
 
 ```
-|2026 Q3 (近期)         2026 Q4 (中期)          2027 Q1 (远期)
-─────────────────────────────────────────────────────────
-F-01 题库隔离          F-15 计时模式            F-28 桌面端
-F-02 随机选项          F-17 错题专项            F-29 分享功能
-F-03 自动下一题        F-18 艾宾浩斯复习        F-30 多用户协作
-F-04 主观判分          F-19 统计图表            F-31 竞赛模式
-F-07 导出/导入         F-20 知识点标签          F-32 题库市场
-F-13 AI 格式代理 ✅    F-25 Markdown 渲染       T-05 监控
-F-21 题干搜索          T-04 组件拆分            T-06 虚拟滚动
+|2026 Q3 (近期)               2026 Q4 (中期)          2027 Q1 (远期)
+───────────────────────────────────────────────────────────────────
+✅ P1-P5 后端升级完成         F-15 计时模式            F-28 桌面端
+F-01 题库隔离                F-17 错题专项            F-29 分享功能
+F-02 随机选项                F-18 艾宾浩斯复习        F-30 多用户协作
+F-03 自动下一题              F-19 统计图表            F-31 竞赛模式
+F-04 主观判分                F-20 知识点标签          F-32 题库市场
+F-07 导出/导入               F-25 Markdown 渲染       T-05 监控
+F-13 AI 格式代理 ✅          T-04 组件拆分            T-06 虚拟滚动
+F-21 题干搜索
 F-24 深色模式
 T-01 严格模式
 T-03 组件测试
