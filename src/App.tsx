@@ -1,18 +1,25 @@
+import { useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ConfigProvider, Layout, Menu, Typography, theme, Button } from 'antd';
+import { ConfigProvider, Layout, Menu, Typography, theme, Button, Spin, Space } from 'antd';
 import {
   HomeOutlined,
   BookOutlined,
   MoonOutlined,
   SunOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useTheme, ThemeProvider } from './contexts/ThemeContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Home from './pages/Home';
+import AdminDashboard from './pages/AdminDashboard';
 import BankDetail from './pages/BankDetail';
 import Practice from './pages/Practice';
+import Login from './pages/Login';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import ErrorBoundary from './components/ErrorBoundary';
+import AdminRoute from './components/AdminRoute';
+import { registerAutoSync } from './lib/syncService';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -21,6 +28,7 @@ function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
+  const { username, profile, signOut, user } = useAuth();
 
   const menuItems = [
     {
@@ -28,6 +36,11 @@ function AppLayout() {
       icon: <HomeOutlined />,
       label: '题库列表',
     },
+    ...(profile?.role === 'admin' ? [{
+      key: '/admin',
+      icon: <SettingOutlined />,
+      label: '后台管理',
+    }] : []),
   ];
 
   const selectedKey = location.pathname === '/' ? '/' : '';
@@ -35,6 +48,18 @@ function AppLayout() {
   const headerBg = isDark ? '#1f1f1f' : '#fff';
   const contentBg = isDark ? '#141414' : '#f5f5f5';
   const borderColor = isDark ? '#303030' : '#f0f0f0';
+
+  // ── P4: 注册自动同步（登录时注册，退出时清理） ──
+  const unregisterSync = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      unregisterSync.current = registerAutoSync(user.id);
+    }
+    return () => {
+      unregisterSync.current?.();
+    };
+  }, [user]);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -79,12 +104,26 @@ function AppLayout() {
             {location.pathname.startsWith('/bank/') && '题库详情'}
             {location.pathname.startsWith('/practice/') && '刷题练习'}
           </Text>
-          <Button
+          <Space size="middle">
+            {profile?.role === 'admin' ? (
+              <Button type="link" size="small" onClick={() => navigate('/admin')} style={{ padding: 0, height: 'auto', fontSize: 13 }}>
+                {username} 🛡️
+              </Button>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {username}
+              </Text>
+            )}
+            <Button type="text" size="small" onClick={signOut}>
+              退出
+            </Button>
+            <Button
             type="text"
             icon={isDark ? <SunOutlined style={{ fontSize: 18, color: '#faad14' }} /> : <MoonOutlined style={{ fontSize: 18 }} />}
             onClick={toggleTheme}
             style={{ color: isDark ? '#e8e8e8' : undefined }}
           />
+          </Space>
         </Header>
         <Content style={{ background: contentBg, minHeight: 'calc(100vh - 48px)' }}>
           <ErrorBoundary>
@@ -98,6 +137,11 @@ function AppLayout() {
               >
                 <Routes location={location}>
                   <Route path="/" element={<Home />} />
+                  <Route path="/admin" element={
+                    <AdminRoute>
+                      <AdminDashboard />
+                    </AdminRoute>
+                  } />
                   <Route path="/bank/:id" element={<BankDetail />} />
                   <Route path="/practice/:bankId" element={<Practice />} />
                 </Routes>
@@ -137,6 +181,27 @@ function GlobalStyles() {
 
 function ThemedApp() {
   const { isDark } = useTheme();
+  const { user, loading } = useAuth();
+
+  // 加载中显示 splash
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: isDark ? '#141414' : '#f0f2f5',
+      }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  // 未登录显示登录页
+  if (!user) {
+    return <Login />;
+  }
 
   return (
     <ConfigProvider
@@ -154,7 +219,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <ThemedApp />
+        <AuthProvider>
+          <ThemedApp />
+        </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
   );

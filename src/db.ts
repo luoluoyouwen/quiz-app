@@ -19,6 +19,8 @@ export interface Question {
   answer: string;
   answers?: string[]; // multiple answers for multi-blank fill
   explanation?: string;
+  image?: string;     // data:image/...;base64,... for inline question images
+  cloudId?: string;   // Supabase question UUID（离线缓存时保留）
 }
 
 export interface Session {
@@ -42,11 +44,24 @@ export interface SessionAnswer {
   timeTaken: number; // in seconds
 }
 
+export interface UserProgress {
+  id?: number;
+  userId: string;           // Supabase UUID of user
+  questionId: string;       // Supabase UUID of question
+  bankId: string;           // Supabase UUID of bank
+  userAnswer: string;
+  isCorrect: boolean;
+  timeTaken: number;        // seconds
+  syncStatus: 'pending' | 'synced';
+  attemptedAt: Date;
+}
+
 const db = new Dexie('QuizApp') as Dexie & {
   banks: EntityTable<QuestionBank, 'id'>;
   questions: EntityTable<Question, 'id'>;
   sessions: EntityTable<Session, 'id'>;
   sessionAnswers: EntityTable<SessionAnswer, 'id'>;
+  userProgress: EntityTable<UserProgress, 'id'>;
 };
 
 db.version(1).stores({
@@ -54,6 +69,14 @@ db.version(1).stores({
   questions: '++id, bankId, type',
   sessions: '++id, bankId, startedAt',
   sessionAnswers: '++id, sessionId, questionId',
+});
+
+db.version(2).stores({
+  banks: '++id, name, createdAt',
+  questions: '++id, bankId, type',
+  sessions: '++id, bankId, startedAt',
+  sessionAnswers: '++id, sessionId, questionId',
+  userProgress: '++id, userId, questionId, bankId, syncStatus',
 });
 
 export { db };

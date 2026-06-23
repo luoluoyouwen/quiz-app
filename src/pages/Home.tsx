@@ -1,23 +1,42 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Button, Modal, Form, Input, Typography, Statistic, Empty, Tooltip, message, Tag, List, Skeleton } from 'antd';
-import { PlusOutlined, ImportOutlined, RightCircleOutlined, DeleteOutlined, InfoCircleOutlined, BookOutlined, QuestionCircleOutlined, TrophyOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Typography, Statistic, Empty, Tooltip, message, Tag, List, Skeleton, Space } from 'antd';
+import { ImportOutlined, RightCircleOutlined, DeleteOutlined, InfoCircleOutlined, BookOutlined, QuestionCircleOutlined, TrophyOutlined, CloudOutlined } from '@ant-design/icons';
 import { db, type QuestionBank } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ImportModal from '../components/ImportModal';
+import { useAuth } from '../contexts/AuthContext';
 import { APP_VERSION, CHANGELOG } from '../utils/changelog';
 
 const { Title, Text } = Typography;
 
+interface CloudBank {
+  id: string;
+  name: string;
+  description: string;
+  question_count: number;
+  created_at: string;
+  created_by: string;
+}
+
 export default function Home() {
   const navigate = useNavigate();
-  const [createOpen, setCreateOpen] = useState(false);
+  const { user } = useAuth();
   const [importBankId, setImportBankId] = useState<number | undefined>(undefined);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [form] = Form.useForm();
+
+  const [cloudBanks, setCloudBanks] = useState<CloudBank[]>([]);
 
   const banks = useLiveQuery(() => db.banks.toArray());
+
+  // 本地列表中排除云端缓存的（description 以 ☁️ 开头）
+  const localBanks = useMemo(() =>
+    (banks || []).filter(b => !b.description?.startsWith('☁️')),
+    [banks],
+  );
+
   const questionCounts = useLiveQuery(
     () =>
       db.questions
@@ -30,23 +49,47 @@ export default function Home() {
           return counts;
         }),
   );
-  const totalSessions = useLiveQuery(() => db.sessions.count());
 
+  const totalSessions = useLiveQuery(() => db.sessions.count());
   const totalQuestions = useMemo(() => {
     if (!questionCounts) return 0;
     return Object.values(questionCounts).reduce((a, b) => a + b, 0);
   }, [questionCounts]);
-
   const totalPracticeCount = totalSessions ?? 0;
 
-  const handleCreateBank = async (values: { name: string; description: string }) => {
-    await db.banks.add({
-      name: values.name,
-      description: values.description || '',
-      createdAt: new Date(),
+  // 从 Supabase 拉取可见的云端题库
+  useEffect(() => {
+    if (!user) {
+      setCloudBanks([]);
+      return;
+    }
+    import('../lib/uploadService').then(({ fetchVisibleBanks }) => {
+      fetchVisibleBanks(user.id).then(setCloudBanks).catch(() => {
+        // 离线时 Supabase 拉取失败，不置空而是保留上次数据
+      });
     });
-    setCreateOpen(false);
-    form.resetFields();
+  }, [user]);
+
+  // 离线时从 Dexie 加载缓存的云题库
+  const cachedCloudBanks: QuestionBank[] = useMemo(() =>
+    (banks || []).filter(b => b.description?.startsWith('☁️ ')),
+    [banks],
+  );
+
+  // 检查上传权限
+  const handleOpenImportModal = (bankId?: number) => {
+    if (!user) {
+      message.warning('请先登录后再导入题目');
+      return;
+    }
+    if (bankId !== undefined) {
+      setImportBankId(bankId);
+      setImportModalOpen(true);
+    } else {
+      setImportBankId(undefined);
+      // 触发全局导入：在 ImportModal 中选择题库
+      setImportModalOpen(true);
+    }
   };
 
   const handleDeleteBank = (bank: QuestionBank) => {
@@ -76,16 +119,28 @@ export default function Home() {
     }).format(d instanceof Date ? d : new Date(d));
   };
 
+  const handleCloudBankPractice = (bank: CloudBank) => {
+    navigate(`/practice/${bank.id}`, { state: { type: 'all', isCloud: true } });
+  };
+
+  const handleCloudBankDetail = (bank: CloudBank) => {
+    navigate(`/bank/${bank.id}`);
+  };
+
   return (
     <div style={{ padding: 24 }}>
+      {/* 迁移横幅已移除 — 新用户无遗留本地题库 */}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>我的题库</Title>
-        <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => setCreateOpen(true)}>
-          创建题库
-        </Button>
+        <Space>
+          <Button type="primary" icon={<ImportOutlined />} size="large" onClick={() => handleOpenImportModal()}>
+            上传题库
+          </Button>
+        </Space>
       </div>
 
-      {/* Loading state — 骨架屏 */}
+      {/* Loading state */}
       {banks === undefined ? (
         <div style={{ padding: '24px 0' }}>
           <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 24 }} />
@@ -97,7 +152,7 @@ export default function Home() {
             ))}
           </Row>
         </div>
-      ) : (!banks || banks.length === 0) ? (
+      ) : (!banks || banks.length === 0) && cloudBanks.length === 0 ? (
         <div style={{ marginTop: 80, textAlign: 'center' }}>
           <Empty
             image={<BookOutlined style={{ fontSize: 64, color: '#1677ff40' }} />}
@@ -112,24 +167,24 @@ export default function Home() {
             }
             style={{ marginBottom: 24 }}
           >
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              创建第一个题库
+            <Button type="primary" icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
+              上传第一个题库
             </Button>
           </Empty>
         </div>
       ) : (
         <>
         {/* 首页统计 */}
-        {banks && banks.length > 0 && (
+        {(localBanks.length > 0) || cloudBanks.length > 0 ? (
           <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
             <Col xs={8}>
               <Card size="small">
-                <Statistic title="题库数" value={banks.length} prefix={<BookOutlined />} valueStyle={{ fontSize: 20, color: '#1677ff' }} />
+                <Statistic title="题库数" value={localBanks.length + cloudBanks.length} prefix={<BookOutlined />} valueStyle={{ fontSize: 20, color: '#1677ff' }} />
               </Card>
             </Col>
             <Col xs={8}>
               <Card size="small">
-                <Statistic title="总题数" value={totalQuestions} prefix={<QuestionCircleOutlined />} valueStyle={{ fontSize: 20, color: '#52c41a' }} />
+                <Statistic title="本地题数" value={totalQuestions} prefix={<QuestionCircleOutlined />} valueStyle={{ fontSize: 20, color: '#52c41a' }} />
               </Card>
             </Col>
             <Col xs={8}>
@@ -138,17 +193,19 @@ export default function Home() {
               </Card>
             </Col>
           </Row>
-        )}
+        ) : null}
+
         <Row gutter={[16, 16]}>
-          {banks.map((bank: QuestionBank) => {
+          {/* 本地题库 */}
+          {localBanks.map((bank: QuestionBank) => {
             const count = questionCounts?.[bank.id!] || 0;
             return (
-              <Col key={bank.id} xs={24} sm={12} md={8} lg={6}>
+              <Col key={`local-${bank.id}`} xs={24} sm={12} md={8} lg={6}>
                 <Card
                   hoverable
                   actions={[
                     <Tooltip title="导入题目" key="import">
-                      <ImportOutlined onClick={(e) => { e.stopPropagation(); setImportBankId(bank.id); }} />
+                      <ImportOutlined onClick={(e) => { e.stopPropagation(); handleOpenImportModal(bank.id); }} />
                     </Tooltip>,
                     <Tooltip title="开始刷题" key="practice">
                       <RightCircleOutlined onClick={(e) => { e.stopPropagation(); navigate(`/practice/${bank.id}`); }} />
@@ -183,33 +240,119 @@ export default function Home() {
               </Col>
             );
           })}
+
+          {/* 云端题库 */}
+          {cloudBanks.map((bank: CloudBank) => (
+            <Col key={`cloud-${bank.id}`} xs={24} sm={12} md={8} lg={6}>
+              <Card
+                hoverable
+                style={{ borderColor: '#69b1ff', borderWidth: 2 }}
+                actions={[
+                  <Tooltip title="缓存到本地" key="cache">
+                    <CloudOutlined onClick={(e) => {
+                      e.stopPropagation();
+                      handleCacheCloudBank(bank);
+                    }} />
+                  </Tooltip>,
+                  <Tooltip title="开始刷题" key="practice">
+                    <RightCircleOutlined onClick={(e) => { e.stopPropagation(); handleCloudBankPractice(bank); }} />
+                  </Tooltip>,
+                ]}
+                onClick={() => handleCloudBankDetail(bank)}
+              >
+                <Card.Meta
+                  title={
+                    <Space>
+                      <Tag color="blue" style={{ marginRight: 4, lineHeight: '18px', fontSize: 11 }}>☁️</Tag>
+                      <Text strong ellipsis>{bank.name}</Text>
+                    </Space>
+                  }
+                  description={
+                    <>
+                      <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                        {bank.description || '云端题库'}
+                      </Text>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: '28px' }}>{bank.question_count}</div>
+                        </div>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>云端</div>
+                          <div style={{ fontSize: 14, fontWeight: 500, lineHeight: '28px' }}>
+                            {new Date(bank.created_at).toLocaleDateString('zh-CN')}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  }
+                />
+              </Card>
+            </Col>
+          ))}
+
+          {/* 离线缓存的云题库（云端不可用时展示） */}
+          {cloudBanks.length === 0 && cachedCloudBanks.length > 0 && (
+            <>
+              <Col span={24}>
+                <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8, marginTop: 8 }}>
+                  📡 离线缓存（点击刷题将使用本地数据）
+                </Text>
+              </Col>
+              {cachedCloudBanks.map((bank: QuestionBank) => {
+                const count = questionCounts?.[bank.id!] || 0;
+                const cloudUuid = bank.description?.replace('☁️ ', '') || '';
+                return (
+                  <Col key={`cached-${bank.id}`} xs={24} sm={12} md={8} lg={6}>
+                    <Card
+                      hoverable
+                      style={{ borderColor: '#95de64', borderWidth: 2 }}
+                      actions={[
+                        <Tooltip title="开始刷题" key="practice">
+                          <RightCircleOutlined onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/practice/${cloudUuid}`, { state: { isCloud: true } });
+                          }} />
+                        </Tooltip>,
+                      ]}
+                      onClick={() => navigate(`/bank/${cloudUuid}`)}
+                    >
+                      <Card.Meta
+                        title={
+                          <Space>
+                            <Tag color="green" style={{ marginRight: 4, lineHeight: '18px', fontSize: 11 }}>📡</Tag>
+                            <Text strong ellipsis>{bank.name}</Text>
+                          </Space>
+                        }
+                        description={
+                          <>
+                            <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                              离线可刷
+                            </Text>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <div style={{ flex: 1, textAlign: 'center' }}>
+                                <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
+                                <div style={{ fontSize: 22, fontWeight: 700, color: '#52c41a', lineHeight: '28px' }}>{count}</div>
+                              </div>
+                            </div>
+                          </>
+                        }
+                      />
+                    </Card>
+                  </Col>
+                );
+              })}
+            </>
+          )}
         </Row>
         </>
       )}
 
-      {/* Create Bank Modal */}
-      <Modal
-        title="创建新题库"
-        open={createOpen}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); }}
-        onOk={() => form.submit()}
-        okText="创建"
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreateBank}>
-          <Form.Item name="name" label="题库名称" rules={[{ required: true, message: '请输入题库名称' }]}>
-            <Input placeholder="例如: 高中数学" />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} placeholder="题库描述（可选）" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
       {/* Import Modal */}
       <ImportModal
-        open={importBankId !== undefined}
+        open={importModalOpen || importBankId !== undefined}
         bankId={importBankId}
-        onClose={() => setImportBankId(undefined)}
+        onClose={() => { setImportModalOpen(false); setImportBankId(undefined); }}
       />
 
       {/* 版本号 & 帮助 */}
@@ -262,7 +405,6 @@ export default function Home() {
         ))}
       </Modal>
 
-      {/* 使用帮助 */}
       <Modal
         title={<span><QuestionCircleOutlined style={{ marginRight: 8 }} />使用帮助</span>}
         open={helpOpen}
@@ -275,7 +417,7 @@ export default function Home() {
             <Tag color="blue" style={{ marginBottom: 4 }}>1</Tag>
             <Text strong>题库管理</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">首页右上角「+」创建新题库，或直接导入 .docx 格式的考试卷。每个卡片显示题目数和上次练习时间。</Text>
+              <Text type="secondary">首页右上角「上传题库」选择文件导入即可，支持 .txt/.json/.csv/.docx/.md 格式。每个卡片显示题目数和上次练习时间。蓝色边框为云端共享题库。</Text>
             </div>
           </div>
           <div>
@@ -302,13 +444,29 @@ export default function Home() {
           </div>
           <div>
             <Tag color="gold" style={{ marginBottom: 4 }}>4</Tag>
-            <Text strong>错题 &amp; 数据</Text>
+            <Text strong>云端题库</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">答错的题自动记入错题本，题库详情页红色横幅可一键重刷。统计折线图展示最近 20 次练习的正确率趋势。</Text>
+              <Text type="secondary">上传文件后自动创建题库并同步到云端。点击云端题库的 ☁️ 图标可缓存到本地离线使用。</Text>
             </div>
           </div>
         </div>
       </Modal>
     </div>
   );
+}
+
+// 辅助：缓存云端题库到本地
+async function handleCacheCloudBank(bank: CloudBank) {
+  try {
+    const { syncCloudBankToLocal } = await import('../lib/uploadService');
+    const added = await syncCloudBankToLocal(bank.id, bank.name);
+    if (added > 0) {
+      message.success(`已缓存 ${added} 题到本地`);
+    } else {
+      message.info('该题库已缓存到本地');
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '缓存失败';
+    message.error(msg);
+  }
 }

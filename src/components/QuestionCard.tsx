@@ -1,6 +1,7 @@
 import { Card, Tag, Typography } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { Question } from '../db';
+import QuestionImage from './QuestionImage';
 
 const { Text, Paragraph } = Typography;
 
@@ -41,6 +42,7 @@ export default function QuestionCard({ question, showAnswer, userAnswer, isCorre
       <Paragraph style={{ marginBottom: 8, whiteSpace: 'pre-wrap', fontSize: 15 }}>
         {question.content}
       </Paragraph>
+      <QuestionImage image={question.image} />
 
       {question.type === 'choice' && question.options && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

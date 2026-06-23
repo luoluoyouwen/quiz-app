@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Card, Button, Progress, Typography, Radio, Checkbox, Input, Space, Tag, Result, message, Modal,
@@ -6,13 +6,20 @@ import {
 } from 'antd';
 import {
   CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined, ReloadOutlined,
-  OrderedListOutlined, FastForwardOutlined,
+  OrderedListOutlined, FastForwardOutlined, CloudOutlined,
 } from '@ant-design/icons';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useQuizSession } from '../hooks/useQuizSession';
 import { checkAnswer } from '../utils/quiz/engine';
 import QuestionCard from '../components/QuestionCard';
+import QuestionImage from '../components/QuestionImage';
+import type { Question, QuestionType } from '../db';
+import { supabase } from '../lib/supabase';
+import { isCloudId, syncCloudBankToLocal } from '../lib/uploadService';
+import { submitPracticeProgress, fetchBankProgress, submitProgressBeacon } from '../lib/syncService';
+import type { ProgressRecord } from '../lib/syncService';
+import { useAuth } from '../contexts/AuthContext';
 
 const getStorageKey = (bankId: string, typeParam: string, questionIds?: number[]): string => {
   const type = typeParam || 'all';
@@ -30,23 +37,150 @@ interface ResumeData {
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
+/** Supabase 题目格式 */
+interface CloudQuestion {
+  id: string;
+  bank_id: string;
+  type: string;
+  content: string;
+  options: string[] | null;
+  answer: string;
+  answers: string[] | null;
+  explanation: string;
+  image_url: string;
+  sort_order: number;
+}
+
+interface CloudBankInfo {
+  id: string;
+  name: string;
+  description: string;
+  question_count: number;
+}
+
+/**
+ * 将云端题目转换为本地 Question 格式，同时维护合成 ID → 真实 UUID 映射
+ */
+function mapCloudQuestions(bankId: number, questions: CloudQuestion[], idMap: Map<number, string>): Question[] {
+  return questions.map((q, i) => {
+    const syntheticId = -(i + 1);
+    idMap.set(syntheticId, q.id); // 合成 ID → 真实 UUID
+    return {
+      id: syntheticId,  // 负 ID 避免与本地冲突
+      bankId,
+      type: q.type as QuestionType,
+      content: q.content,
+      options: q.options || undefined,
+      answer: q.answer,
+      answers: q.answers || undefined,
+      explanation: q.explanation,
+    };
+  });
+}
+
 export default function Practice() {
   const { bankId } = useParams<{ bankId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const isCloud = bankId ? isCloudId(bankId) : false;
   const typeParam = (location.state as { type?: string })?.type || 'all';
   const questionIds = (location.state as { questionIds?: number[] })?.questionIds;
+  const cloudFlag = (location.state as { isCloud?: boolean })?.isCloud || isCloud;
 
-  // ── 断点续刷 state（必须在 useQuizSession 之前声明）──
+  // ── 云端数据 ──
+  const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(null);
+  const [cloudQuestions, setCloudQuestions] = useState<CloudQuestion[]>([]);
+  const [cloudDataLoading, setCloudDataLoading] = useState(false);
+
+  // 本地数据
+  const localBank = useLiveQuery(
+    () => cloudFlag ? undefined : db.banks.get(Number(bankId)),
+    [cloudFlag, bankId],
+  );
+  const localQuestions = useLiveQuery(
+    () => cloudFlag ? ([] as Question[]) : db.questions.where('bankId').equals(Number(bankId)).toArray(),
+    [cloudFlag, bankId],
+  );
+
+  const { user } = useAuth();
+
+  // 云端题目 ID 映射（合成 ID → 真实 Supabase UUID）
+  const cloudQuestionIdMap = useRef<Map<number, string>>(new Map());
+
+  // 云端：拉取题库信息和题目（在线走 Supabase，离线走 Dexie 缓存）
+  useEffect(() => {
+    if (!cloudFlag || !bankId) return;
+    setCloudDataLoading(true);
+
+    Promise.all([
+      supabase.from('question_banks').select('id, name, description, question_count').eq('id', bankId).single(),
+      supabase.from('questions').select('*').eq('bank_id', bankId).order('sort_order', { ascending: true }),
+    ]).then(([bankResult, questionsResult]) => {
+      if (!bankResult.error && bankResult.data) {
+        setCloudBank(bankResult.data as CloudBankInfo);
+      }
+      if (!questionsResult.error && questionsResult.data) {
+        setCloudQuestions(questionsResult.data as CloudQuestion[]);
+      }
+      setCloudDataLoading(false);
+    }).catch(async () => {
+      // 离线兜底：从 Dexie 缓存读取 ☁️ {bankId}
+      try {
+        const { db } = await import('../db');
+        const cachedBanks = await db.banks
+          .filter(b => b.description === `☁️ ${bankId}`)
+          .toArray();
+        const cachedBank = cachedBanks[0];
+        if (cachedBank) {
+          const localQuestions = await db.questions
+            .where('bankId')
+            .equals(cachedBank.id!)
+            .toArray();
+          setCloudBank({
+            id: bankId!,
+            name: cachedBank.name,
+            description: '离线缓存',
+            question_count: localQuestions.length,
+          });
+          const mapped: CloudQuestion[] = localQuestions.map((q, i) => ({
+            id: q.cloudId || q.id?.toString() || `cached-${i}`,
+            bank_id: bankId!,
+            type: q.type,
+            content: q.content,
+            options: q.options || null,
+            answer: q.answer,
+            answers: q.answers || null,
+            explanation: q.explanation || '',
+            image_url: '',
+            sort_order: i + 1,
+          }));
+          setCloudQuestions(mapped);
+        }
+      } catch { /* 兜底失败，无网络也无缓存 */ }
+      setCloudDataLoading(false);
+    });
+  }, [cloudFlag, bankId]);
+
+  // 决定最终的 bank 和 questions
+  const bank = cloudFlag ? cloudBank : localBank;
+  const rawQuestions = cloudFlag ? cloudQuestions : localQuestions;
+  const dataLoading = cloudFlag ? cloudDataLoading : (localBank === undefined);
+
+  // 云端：映射到本地 Question 格式，使用合成 bankId
+  const [syntheticBankId] = useState(() =>
+    cloudFlag && bankId
+      ? Math.abs(bankId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % 1000000 + 1000000
+      : Number(bankId),
+  );
+
+  const allQuestions: Question[] | undefined = cloudFlag
+    ? (rawQuestions ? mapCloudQuestions(syntheticBankId, rawQuestions as CloudQuestion[], cloudQuestionIdMap.current) : undefined)
+    : (rawQuestions as Question[] | undefined);
+
+  // ── 断点续刷 ──
   const [resumeState, setResumeState] = useState<ResumeData | null | undefined>(undefined);
   const [resumeModalOpen, setResumeModalOpen] = useState(false);
   const [savedResume, setSavedResume] = useState<ResumeData | null>(null);
-
-  const bank = useLiveQuery(() => db.banks.get(Number(bankId)), [bankId]);
-  const allQuestions = useLiveQuery(
-    () => db.questions.where('bankId').equals(Number(bankId)).toArray(),
-    [bankId],
-  );
 
   const {
     session, currentIndex, sessionDone,
@@ -54,9 +188,9 @@ export default function Practice() {
     totalQuestions, currentQuestion,
     handleAnswer, handleSubmit, handleNext, handlePrev, goToQuestion, handleRestart,
     shuffledOrders,
-  } = useQuizSession(bankId || '', allQuestions, typeParam, questionIds, resumeState);
+  } = useQuizSession(String(syntheticBankId), allQuestions, typeParam, questionIds, resumeState);
 
-  // Question grid / navigation
+  // Question grid
   const [gridOpen, setGridOpen] = useState(false);
 
   // Check for saved progress on mount
@@ -66,7 +200,7 @@ export default function Practice() {
         const raw = localStorage.getItem(getStorageKey(bankId, typeParam, questionIds));
         if (raw) {
           const data: ResumeData = JSON.parse(raw);
-          if (data.timestamp && Date.now() - data.timestamp < 86400000) { // < 24h
+          if (data.timestamp && Date.now() - data.timestamp < 86400000) {
             setSavedResume(data);
             setResumeModalOpen(true);
           } else {
@@ -91,7 +225,7 @@ export default function Practice() {
     setResumeState(null);
   };
 
-  // Save progress to localStorage on answers change
+  // Save progress to localStorage
   useEffect(() => {
     if (!bankId || !session || Object.keys(userAnswers).length === 0) return;
     if (sessionDone) {
@@ -106,7 +240,7 @@ export default function Practice() {
         timestamp: Date.now(),
       };
       localStorage.setItem(getStorageKey(bankId, typeParam, questionIds), JSON.stringify(data));
-    } catch { /* quota exceeded, ignore */ }
+    } catch { /* quota exceeded */ }
   }, [bankId, session, userAnswers, submitted, currentIndex, sessionDone]);
 
   // Save on beforeunload
@@ -124,7 +258,112 @@ export default function Practice() {
     return () => window.removeEventListener('beforeunload', save);
   }, [bankId, session, userAnswers, submitted, currentIndex, sessionDone]);
 
-  // Touch swipe handlers
+  // ── P4: 进入练习页时拉取云端进度 ──
+  const [cloudProgress, setCloudProgress] = useState<Map<string, { isCorrect: boolean; userAnswer: string }>>(new Map());
+
+  // 云端已答的合成 ID 集合（grid 中标记）
+  const cloudAnsweredSet = useMemo(() => {
+    if (cloudProgress.size === 0) return new Set<number>();
+    // 反转映射：uuid → syntheticId
+    const uuidToSynth = new Map<string, number>();
+    for (const [synthId, uuid] of cloudQuestionIdMap.current.entries()) {
+      uuidToSynth.set(uuid, synthId);
+    }
+    const answered = new Set<number>();
+    for (const uuid of cloudProgress.keys()) {
+      const synthId = uuidToSynth.get(uuid);
+      if (synthId !== undefined) answered.add(synthId);
+    }
+    return answered;
+  }, [cloudProgress, cloudQuestionIdMap]);
+
+  useEffect(() => {
+    if (!cloudFlag || !user || !bankId) return;
+    if (cloudQuestions.length === 0) return;
+
+    fetchBankProgress(user.id, bankId).then(setCloudProgress).catch((err) => {
+      console.warn('拉取云端进度失败:', err.message);
+    });
+  }, [cloudFlag, user, bankId, cloudQuestions]);
+
+  // ── P4: 练习完成时提交进度 ──
+  const progressSubmittedRef = useRef(false);
+
+  useEffect(() => {
+    if (!sessionDone || progressSubmittedRef.current) return;
+    if (!user || !bankId) return;
+    if (!cloudFlag) return; // 只有云端题库才同步
+
+    const records: ProgressRecord[] = [];
+    for (let i = 0; i < session!.questions.length; i++) {
+      const q = session!.questions[i];
+      const realUuid = cloudQuestionIdMap.current.get(q.id!);
+      if (!realUuid) continue;
+
+      records.push({
+        questionId: realUuid,
+        bankId: bankId,
+        userAnswer: userAnswers[i] || '',
+        isCorrect: checkAnswer(q, userAnswers[i] || '').correct,
+        timeTaken: 0, // 精确计时后续优化
+      });
+    }
+
+    if (records.length > 0) {
+      submitPracticeProgress(records, user.id).then(() => {
+        progressSubmittedRef.current = true;
+      });
+    } else {
+      progressSubmittedRef.current = true;
+    }
+  }, [sessionDone, user, bankId, cloudFlag, session, userAnswers]);
+
+  // ── P4: 离开页面时兜底提交（仅在 unmount 时触发） ──
+  const unmountDataRef = useRef<{
+    cloudFlag: boolean; user: typeof user; bankId: string | undefined;
+    submitted: Record<number, boolean>; session: typeof session;
+    userAnswers: Record<number, string>;
+  } | null>(null);
+
+  // 每次渲染时同步最新值到 ref
+  unmountDataRef.current = { cloudFlag, user, bankId, submitted, session, userAnswers };
+
+  useEffect(() => {
+    return () => {
+      const d = unmountDataRef.current;
+      if (!d) return;
+      if (!d.cloudFlag || !d.user || !d.bankId) return;
+      if (Object.keys(d.submitted).length === 0) return;
+      if (progressSubmittedRef.current) return;
+      if (!d.session) return;
+
+      const records: ProgressRecord[] = [];
+      for (let i = 0; i < Object.keys(d.submitted).length; i++) {
+        if (!d.submitted[i]) continue;
+        const q = d.session.questions[i];
+        if (!q) continue;
+        const realUuid = cloudQuestionIdMap.current.get(q.id!);
+        if (!realUuid) continue;
+        records.push({
+          questionId: realUuid,
+          bankId: d.bankId,
+          userAnswer: d.userAnswers[i] || '',
+          isCorrect: checkAnswer(q, d.userAnswers[i] || '').correct,
+          timeTaken: 0,
+        });
+      }
+      if (records.length > 0) {
+        // 使用 sendBeacon 确保页面关闭前发出请求
+        const ok = submitProgressBeacon(records, d.user.id);
+        if (!ok) {
+          // fallback: 异步提交（可能在页面关闭时被截断，但有总比没有好）
+          submitPracticeProgress(records, d.user.id);
+        }
+      }
+    };
+  }, []); // 空 deps：只在 unmount 时执行
+
+  // Touch swipe
   const touchStartRef = useRef<number | null>(null);
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartRef.current = e.touches[0].clientX;
@@ -141,23 +380,23 @@ export default function Practice() {
     touchStartRef.current = null;
   }, [currentIndex, totalQuestions, handleNext, handlePrev]);
 
-  // Essay flashcard state (not affected by swipe)
+  // Essay flashcard state
   const [answerRevealed, setAnswerRevealed] = useState(false);
   useEffect(() => { setAnswerRevealed(false); }, [currentIndex]);
 
-  // ── 离开页面时记录练习时间（只要提交过至少一题）──
+  // Save lastPracticed to local Dexie (only for local banks, cloud handled later)
   useEffect(() => {
     return () => {
-      if (bankId && Object.keys(submitted).length > 0) {
+      if (bankId && Object.keys(submitted).length > 0 && !cloudFlag) {
         db.banks.update(Number(bankId), { lastPracticed: new Date() });
       }
     };
-  }, [bankId, submitted]);
+  }, [bankId, submitted, cloudFlag]);
 
-  // ── 背题模式 toggle — all question types show flashcard UI
+  // Flashcard mode
   const [flashcardMode, setFlashcardMode] = useState(false);
 
-  // ── 练习完成后自动返回 ──
+  // Auto return timer
   const autoReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cancelReturn, setCancelReturn] = useState(false);
 
@@ -175,7 +414,7 @@ export default function Practice() {
     };
   }, [sessionDone, bank, cancelReturn, navigate, bankId]);
 
-  // ── 答对自动下一题（hooks 必须在 early return 之前）──
+  // Auto advance on correct
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSubmitted = submitted[currentIndex];
   const userAnswer = userAnswers[currentIndex] || '';
@@ -196,7 +435,6 @@ export default function Practice() {
     };
   }, [isSubmitted, isCorrect, flashcardMode, handleNext, currentIndex]);
 
-  // ── 手动点击下一题时清除自动跳转定时器 ──
   const originalHandleNext = handleNext;
   const wrappedHandleNext = useCallback(() => {
     if (autoAdvanceTimer.current) {
@@ -234,7 +472,7 @@ export default function Practice() {
                 <Button icon={<ReloadOutlined />} onClick={handleRestart}>重新刷题（全部）</Button>
                 <Button icon={<FastForwardOutlined />} onClick={() => {
                   const t = location.state as { type?: string } || {};
-                  navigate(`/practice/${bankId}`, { state: { type: t.type || 'all' } });
+                  navigate(`/practice/${bankId}`, { state: { type: t.type || 'all', isCloud: cloudFlag } });
                 }}>再来一局</Button>
                 <Button onClick={() => navigate(`/bank/${bankId}`)}>返回题库</Button>
               </Space>
@@ -259,11 +497,40 @@ export default function Practice() {
             ))}
           </Card>
         )}
+        {cloudFlag && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <Button
+              type="link"
+              icon={<CloudOutlined />}
+              onClick={async () => {
+                if (bankId) {
+                  const added = await syncCloudBankToLocal(bankId, bank.name);
+                  if (added > 0) message.success(`已缓存 ${added} 题到本地`);
+                  else message.info('已缓存到本地');
+                }
+              }}
+            >
+              缓存该题库到本地（离线可用）
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
 
   // ── Loading / Empty ──
+
+  if (dataLoading) {
+    return (
+      <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
+        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
+        <Card><Skeleton active paragraph={{ rows: 4 }} /></Card>
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>加载中… 请稍候</Text>
+        </div>
+      </div>
+    );
+  }
 
   if (!bank || !allQuestions || !session) {
     return (
@@ -309,7 +576,10 @@ export default function Practice() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/bank/${bankId}`)} />
-        <Title level={4} style={{ margin: 0, flex: 1 }}>{bank.name}</Title>
+        <Title level={4} style={{ margin: 0, flex: 1 }}>
+          {cloudFlag && <Tag color="blue" style={{ lineHeight: '18px', fontSize: 11 }}>☁️</Tag>}
+          {bank.name}
+        </Title>
         <Button
           size="small"
           type={flashcardMode ? 'primary' : 'default'}
@@ -359,8 +629,9 @@ export default function Practice() {
         <Title level={5} style={{ whiteSpace: 'pre-wrap', marginBottom: 20 }}>
           {currentQuestion?.content}
         </Title>
+        <QuestionImage image={currentQuestion?.image} />
 
-        {/* ── Flashcard Mode (背题模式 — all types) ── */}
+        {/* Flashcard Mode */}
         {flashcardMode ? (
           <div>
             {!answerRevealed ? (
@@ -393,6 +664,7 @@ export default function Practice() {
                               }).join('\n')
                             : currentQuestion?.answer}
                     </Text>
+                    <QuestionImage image={currentQuestion?.image} caption="题目配图" />
                   </div>
                   {currentQuestion?.explanation && (
                     <div style={{ marginTop: 12, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
@@ -534,7 +806,6 @@ export default function Practice() {
         {currentQuestion?.type === 'fill' && (
           <div>
             {currentQuestion.answers && currentQuestion.answers.length > 1 ? (
-              // Multi-blank: show one input per blank
               <Space direction="vertical" style={{ width: '100%' }}>
                 {currentQuestion.answers.map((_, idx) => {
                   const blankAnswers = userAnswer ? userAnswer.split('||') : [];
@@ -602,7 +873,7 @@ export default function Practice() {
           </Space>
         )}
 
-        {/* Essay question — Flashcard / 背题模式 (in normal mode, treated as flashcard) */}
+        {/* Essay */}
         {currentQuestion?.type === 'essay' && (
           <div>
             {!answerRevealed ? (
@@ -624,6 +895,7 @@ export default function Practice() {
                   <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
                     <Text>{currentQuestion.answer}</Text>
                   </div>
+                  <QuestionImage image={currentQuestion?.image} caption="题目配图" />
                   {currentQuestion.explanation && (
                     <div style={{ marginTop: 12, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
                       <Text type="secondary">
@@ -672,7 +944,7 @@ export default function Practice() {
           </div>
         )}
 
-        {/* 无空填空题 — always 背题 mode, no blanks to fill */}
+        {/* 无空填空题 */}
         {currentQuestion?.type === 'nofill' && (
           <div>
             {!answerRevealed ? (
@@ -694,6 +966,7 @@ export default function Practice() {
                   <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
                     <Text>{currentQuestion.content}</Text>
                   </div>
+                  <QuestionImage image={currentQuestion?.image} />
                 </Card>
                 <Space size="large" style={{ display: 'flex', justifyContent: 'center' }}>
                   <Button
@@ -813,7 +1086,7 @@ export default function Practice() {
         )}
       </div>
 
-      {/* Question grid - floating button */}
+      {/* Question grid */}
       <Button
         type="primary"
         shape="circle"
@@ -827,7 +1100,6 @@ export default function Practice() {
         }}
       />
 
-      {/* Question progress grid */}
       <Modal
         title="题目列表"
         open={gridOpen}
@@ -836,10 +1108,11 @@ export default function Practice() {
         width={360}
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {session && session.questions.map((_, i) => {
+          {session && session.questions.map((q, i) => {
             const ans = userAnswers[i];
             const isAnswered = ans !== undefined && ans !== '';
             const isCurrent = i === currentIndex;
+            const hasCloudProgress = cloudFlag && !isAnswered && cloudAnsweredSet.has(q.id!);
             return (
               <Button
                 key={i}
@@ -849,9 +1122,18 @@ export default function Practice() {
                 style={{
                   width: 44, height: 44,
                   fontWeight: isCurrent ? 'bold' : 'normal',
-                  background: isCurrent ? undefined : isAnswered ? 'var(--bg-success)' : 'var(--bg-fill)',
-                  border: isCurrent ? undefined : isAnswered ? '1px solid var(--border-success)' : '1px solid var(--border)',
-                  color: isCurrent ? '#fff' : isAnswered ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                  background: isCurrent ? undefined
+                    : isAnswered ? 'var(--bg-success)'
+                    : hasCloudProgress ? 'var(--bg-warning)'
+                    : 'var(--bg-fill)',
+                  border: isCurrent ? undefined
+                    : isAnswered ? '1px solid var(--border-success)'
+                    : hasCloudProgress ? '1px solid var(--border-warning)'
+                    : '1px solid var(--border)',
+                  color: isCurrent ? '#fff'
+                    : isAnswered ? 'var(--color-success)'
+                    : hasCloudProgress ? '#d48806'
+                    : 'var(--color-text-secondary)',
                 }}
               >
                 {i + 1}
@@ -861,7 +1143,7 @@ export default function Practice() {
         </div>
       </Modal>
 
-      {/* 断点续传弹窗 */}
+      {/* Resume modal */}
       <Modal
         title="发现未完成的练习"
         open={resumeModalOpen}

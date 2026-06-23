@@ -341,8 +341,26 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
           // Handle answers starting with numbered lists like "1）text"
           answerLines.push(ansLine);
           j++;
-        } else if (answerLines.length > 0 && !isQuestionLine(ansLine) && !detectSection(ansLine)) {
-          // Continuation of answer
+        } else if (answerLines.length > 0) {
+          // Use look-ahead for edge cases: lines matched by 方法$/步骤$ are new
+          // questions only if followed by 答：; lines ending with ？ are always new.
+          if (isQuestionLine(ansLine)) {
+            if (/[？?]$/.test(ansLine)) {
+              // Lines ending with ？ are always new questions
+              break;
+            }
+            // Lines matching via 方法$/步骤$: only break if followed by 答：
+            const nextIsAnswer = j + 1 < lines.length &&
+              (lines[j + 1].startsWith('答：') || lines[j + 1].startsWith('答:'));
+            if (nextIsAnswer) {
+              break;
+            }
+            // Otherwise it's an answer sub-header — continue collecting
+          }
+          if (detectSection(ansLine)) {
+            break;
+          }
+          // Sub-header or continuation of answer
           answerLines.push(ansLine);
           j++;
         } else {
@@ -359,6 +377,16 @@ export function parseExamDocx(text: string): { bankName: string; questions: Ques
         i = j;
         continue;
       }
+
+      // Answerless essay question: still keep it (likely an image-based question)
+      // The answer is the image itself, stored in the `image` field later
+      questions.push({
+        type: 'essay',
+        content: questionText,
+        answer: '',
+      });
+      i = i + 1;
+      continue;
     }
 
     i++;

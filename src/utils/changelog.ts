@@ -12,9 +12,32 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.8.0';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '1.8.0',
+    date: '2026-06-22',
+    title: '修复：DOCX 配图自动提取与简答题解析',
+    changes: [
+      'DOCX 导入时通过 mammoth dataUri 自动提取内嵌图片，base64 存入本地',
+      '刷题模式、背题模式、题库详情均支持展示题目配图（点击可放大预览）',
+      '修复简答题「答案分到题干」的问题：子标题不再误判为新题目',
+      '修复无答案简答题（图片型）被丢弃的问题',
+      '图片按章节统计（HTML 段落分析），正确分配到选择题/简答题区',
+    ],
+  },
+  {
+    version: '1.7.0',
+    date: '2026-06-22',
+    title: 'DOCX 配图自动提取与展示',
+    changes: [
+      '解析 DOCX 时自动提取内嵌图片（单选题配图），base64 存入本地数据库',
+      '刷题模式、背题模式、题库详情均支持展示题目配图（点击可放大预览）',
+      '导入预览新增「图」列，导入成功后提示配图题数',
+      '图片数据离线可用，无需网络请求',
+    ],
+  },
   {
     version: '1.6.0',
     date: '2026-06-23',
