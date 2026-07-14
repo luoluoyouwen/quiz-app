@@ -1,55 +1,60 @@
-/**
- * CF Pages Function — AI 格式整理代理
- *
- * 将前端的 AI 规整请求转发到 DeepSeek API，
- * API key 仅存在 Cloudflare 环境变量中，不进前端 bundle。
- *
- * 环境变量需要配置：
- *   AI_NORMALIZE_API_KEY = sk-xxx
- */
-
 interface Env {
   AI_NORMALIZE_API_KEY: string;
+  SUPABASE_URL: string;
+  SUPABASE_PUBLISHABLE_KEY: string;
 }
 
-export const onRequest: PagesFunction<Env> = async (context) => {
-  const { request, env } = context;
+const responseHeaders = { 'Content-Type': 'application/json' };
 
-  if (request.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
-  }
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: responseHeaders });
+}
 
-  const apiKey = env.AI_NORMALIZE_API_KEY;
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: 'AI_NORMALIZE_API_KEY not configured' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
-    );
+export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  const authHeader = request.headers.get('Authorization') || '';
+  if (!authHeader.startsWith('Bearer ')) return json({ error: 'Authentication required' }, 401);
+  const userResponse = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, Authorization: authHeader },
+  });
+  if (!userResponse.ok) return json({ error: 'Invalid session' }, 401);
+  if (!env.AI_NORMALIZE_API_KEY) return json({ error: 'AI normalization is not configured' }, 503);
+
+  const rawBody = await request.text();
+  if (!rawBody || rawBody.length > 512 * 1024) return json({ error: 'Invalid request size' }, 413);
+
+  let body: { messages?: Array<{ role?: string; content?: string }> };
+  try { body = JSON.parse(rawBody); }
+  catch { return json({ error: 'Invalid JSON body' }, 400); }
+
+  const systemPrompt = body.messages?.find((item) => item.role === 'system')?.content?.trim() || '';
+  const userText = body.messages?.find((item) => item.role === 'user')?.content?.trim() || '';
+  if (!systemPrompt || !userText || systemPrompt.length > 12000 || userText.length > 200000) {
+    return json({ error: 'Invalid normalization content' }, 400);
   }
 
   try {
-    const body = await request.json();
-
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+    const upstream = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${env.AI_NORMALIZE_API_KEY}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userText },
+        ],
+        temperature: 0.05,
+        max_tokens: Math.min(Math.max(userText.length * 2, 512), 32000),
+      }),
       signal: AbortSignal.timeout(65_000),
     });
-
-    const data = await response.json();
-    return new Response(JSON.stringify(data), {
-      status: response.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return new Response(
-      JSON.stringify({ error: msg }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
-    );
+    return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Upstream request failed';
+    return json({ error: message }, 502);
   }
 };

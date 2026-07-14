@@ -9,7 +9,7 @@ const typeLabels: Record<string, string> = {
   fill: '填空题',
   judge: '判断题',
   essay: '简答题',
-  nofill: '无空填空题',
+  nofill: '背记题',
 };
 
 // The answer formatting logic used by QuestionCard for showAnswer display:

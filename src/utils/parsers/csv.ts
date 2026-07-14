@@ -32,7 +32,7 @@ export function parseCsv(text: string): { bankName: string; questions: QuestionI
     throw new Error('CSV file is empty or has no data rows');
   }
 
-  let bankName = 'Imported CSV';
+  const bankName = 'Imported CSV';
   const questions: QuestionInput[] = [];
 
   for (let i = 0; i < rows.length; i++) {

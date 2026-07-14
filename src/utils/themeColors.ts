@@ -4,6 +4,7 @@
  * this utility provides colors for custom inline styles.
  */
 import { useTheme } from '../contexts/ThemeContext';
+import { getAppThemeTokens } from '../styles/themeTokens';
 
 export interface ThemeColors {
   /** Card / container background */
@@ -30,35 +31,24 @@ export interface ThemeColors {
   white: string;
 }
 
-const light: ThemeColors = {
-  bgContainer: '#fff',
-  bgLayout: '#f5f5f5',
-  border: '#d9d9d9',
-  textMuted: '#999',
-  bgFill: '#fafafa',
-  bgSuccess: '#f6ffed',
-  bgError: '#fff1f0',
-  bgWarning: '#fffbe6',
-  borderWarning: '#ffe58f',
-  primary: '#1677ff',
-  white: '#fff',
-};
-
-const dark: ThemeColors = {
-  bgContainer: '#1f1f1f',
-  bgLayout: '#141414',
-  border: '#434343',
-  textMuted: '#666',
-  bgFill: '#262626',
-  bgSuccess: '#162312',
-  bgError: '#2a1215',
-  bgWarning: '#2b1d0f',
-  borderWarning: '#612500',
-  primary: '#1677ff',
-  white: '#fff',
-};
+function getColors(isDark: boolean): ThemeColors {
+  const vars = getAppThemeTokens(isDark).cssVars;
+  return {
+    bgContainer: vars['--bg-container'],
+    bgLayout: vars['--bg-layout'],
+    border: vars['--border'],
+    textMuted: vars['--color-text-secondary'],
+    bgFill: vars['--bg-fill'],
+    bgSuccess: vars['--bg-success'],
+    bgError: vars['--bg-error'],
+    bgWarning: vars['--bg-warning'],
+    borderWarning: vars['--border-warning'],
+    primary: vars['--color-primary'],
+    white: '#fff',
+  };
+}
 
 export function useColors(): ThemeColors {
   const { isDark } = useTheme();
-  return isDark ? dark : light;
+  return getColors(isDark);
 }

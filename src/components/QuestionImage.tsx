@@ -9,24 +9,18 @@ export default function QuestionImage({ image, caption }: QuestionImageProps) {
   if (!image) return null;
 
   return (
-    <div style={{ margin: '12px 0', textAlign: 'center' }}>
+    <figure className="question-image-frame">
       <Image
+        className="question-image"
         src={image}
         alt={caption || '题目配图'}
-        style={{
-          maxWidth: '100%',
-          maxHeight: 400,
-          borderRadius: 8,
-          objectFit: 'contain',
-          border: '1px solid var(--border)',
-        }}
         preview={{ mask: '点击查看大图' }}
       />
       {caption && (
-        <div style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+        <figcaption className="question-image-caption">
           {caption}
-        </div>
+        </figcaption>
       )}
-    </div>
+    </figure>
   );
 }

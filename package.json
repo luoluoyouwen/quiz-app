@@ -1,23 +1,30 @@
 {
   "name": "quiz-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "5.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "security:check": "node scripts/verify-security.ts"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
+    "@paddleocr/paddleocr-js": "^0.4.2",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "antd": "^6.4.4",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "framer-motion": "^12.40.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.23.0",
     "mammoth": "^1.12.0",
+    "motion": "^12.42.2",
+    "officeparser": "^7.2.2",
     "papaparse": "^5.5.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

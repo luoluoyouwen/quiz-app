@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { debug } from '../utils/debug';
 
 export interface ProgressRecord {
   questionId: string;
@@ -39,7 +40,7 @@ export async function submitPracticeProgress(
       .insert(rows);
 
     if (error) {
-      console.warn('Supabase 批量写入失败，转为离线缓存:', error.message);
+      debug.warn('Supabase 批量写入失败，转为离线缓存:', error.message);
       await cacheRecords(records, userId, 'pending');
     } else {
       await cacheRecords(records, userId, 'synced');
@@ -112,6 +113,7 @@ export async function syncPendingProgress(userId: string): Promise<number> {
   const pending = await db.userProgress
     .where('syncStatus')
     .equals('pending')
+    .filter(r => r.userId === userId)
     .toArray();
 
   if (pending.length === 0) return 0;
@@ -131,7 +133,7 @@ export async function syncPendingProgress(userId: string): Promise<number> {
     .insert(rows);
 
   if (error) {
-    console.warn('批量同步失败:', error.message);
+    debug.warn('批量同步失败:', error.message);
     return 0;
   }
 
@@ -152,7 +154,7 @@ export function registerAutoSync(userId: string): () => void {
     if (navigator.onLine && userId) {
       const count = await syncPendingProgress(userId);
       if (count > 0) {
-        console.log(`自动同步 ${count} 条离线进度`);
+        debug.log(`自动同步 ${count} 条离线进度`);
       }
     }
   };
@@ -166,17 +168,20 @@ export function registerAutoSync(userId: string): () => void {
 
 /**
  * 页面关闭/离开时的兜底提交（使用 sendBeacon 确保请求完成）
- * 绕过 supabase-js 客户端，直接 POST 到 Supabase REST API
+ *
+ * sendBeacon 无法设置自定义 HTTP 头，因此不能直接 POST 到 Supabase
+ *（需要 apikey + Authorization）。改用 Cloudflare Pages Function 代理
+ * 路径 /api/progress-beacon，由服务端注入认证头后转发到 Supabase。
  */
-export function submitProgressBeacon(
+export async function submitProgressBeacon(
   records: ProgressRecord[],
   userId: string,
-): boolean {
-  if (records.length === 0 || !navigator.sendBeacon) return false;
+): Promise<boolean> {
+  if (records.length === 0) return false;
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const apiKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!supabaseUrl || !apiKey) return false;
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
+  if (!accessToken) return false;
 
   const rows = records.map(r => ({
     user_id: userId,
@@ -188,11 +193,23 @@ export function submitProgressBeacon(
     attempted_at: new Date().toISOString(),
   }));
 
-  const blob = new Blob([JSON.stringify(rows)], { type: 'application/json' });
-  return navigator.sendBeacon(
-    `${supabaseUrl}/rest/v1/user_progress`,
-    blob,
-  );
+  const body = JSON.stringify(rows);
+
+  // Use CF Pages Function proxy — it injects SERVICE_ROLE_KEY for auth
+  try {
+    const response = await fetch('/api/progress-beacon', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body,
+      keepalive: true,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**

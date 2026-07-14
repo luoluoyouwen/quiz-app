@@ -9,14 +9,18 @@ import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { NetworkFirst } from 'workbox-strategies';
 
-// Precache 所有静态资源（Vite 自动生成清单）
-precacheAndRoute(self.__WB_MANIFEST);
+// Precache 静态资源 — 排除 PaddleOCR WASM（~21MB，按需加载）
+const manifest = self.__WB_MANIFEST.filter(
+  (entry) => !entry.url.includes('worker-entry') && !entry.url.includes('dist-')
+);
+precacheAndRoute(manifest);
 
 // 网络优先策略加载 HTML（保证用户每次都拿到最新版本）
 registerRoute(
   new NavigationRoute(
     new NetworkFirst({
       cacheName: 'pages',
+      networkTimeoutSeconds: 3,
       plugins: [],
     })
   )
@@ -34,12 +38,12 @@ self.addEventListener('activate', (event) => {
   const claim = self.clients.claim();
   // 通知所有页面新 SW 已接管
   event.waitUntil(
-    claim.then(() => {
+    claim.then(() => (
       self.clients.matchAll().then(clients => {
         clients.forEach(client => {
           client.postMessage({ type: 'CONTROLLED' });
         });
-      });
-    })
+      })
+    ))
   );
 });

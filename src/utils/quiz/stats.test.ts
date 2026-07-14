@@ -10,11 +10,11 @@ const questions: Question[] = [
 ];
 
 const answers: SessionAnswer[] = [
-  { id: 1, sessionId: 1, questionId: 1, userAnswer: 'A', isCorrect: true, timeTaken: 5 },
-  { id: 2, sessionId: 1, questionId: 2, userAnswer: 'y', isCorrect: false, timeTaken: 10 },
-  { id: 3, sessionId: 1, questionId: 3, userAnswer: '对', isCorrect: true, timeTaken: 3 },
-  { id: 4, sessionId: 2, questionId: 1, userAnswer: 'B', isCorrect: false, timeTaken: 8 },
-  { id: 5, sessionId: 2, questionId: 4, userAnswer: 'B', isCorrect: true, timeTaken: 2 },
+  { id: 1, sessionId: 1, userId: 'test', questionId: 1, userAnswer: 'A', isCorrect: true, timeTaken: 5 },
+  { id: 2, sessionId: 1, userId: 'test', questionId: 2, userAnswer: 'y', isCorrect: false, timeTaken: 10 },
+  { id: 3, sessionId: 1, userId: 'test', questionId: 3, userAnswer: '对', isCorrect: true, timeTaken: 3 },
+  { id: 4, sessionId: 2, userId: 'test', questionId: 1, userAnswer: 'B', isCorrect: false, timeTaken: 8 },
+  { id: 5, sessionId: 2, userId: 'test', questionId: 4, userAnswer: 'B', isCorrect: true, timeTaken: 2 },
 ];
 
 // ── calculateStats ──

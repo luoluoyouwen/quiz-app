@@ -117,7 +117,7 @@ export function checkAnswer(
       const cleanInput = userAnswer.trim().toUpperCase();
       const cleanExpected = expected.trim().toUpperCase();
       // Reject invalid characters (only A-D allowed) — prevents "ABCDE"→"ABCD"
-      if (!/^[A-D]*$/.test(cleanInput)) {
+      if (!/^[A-Z]*$/.test(cleanInput)) {
         return { correct: false, expected: cleanExpected };
       }
       const correct =
@@ -169,7 +169,7 @@ export function checkAnswer(
     }
 
     case 'nofill': {
-      // 无空填空题: 背题模式 only, no answer to check
+      // 背记题: 背题模式 only, no answer to check
       if (userAnswer === '__remembered__') return { correct: true, expected: '' };
       if (userAnswer === '__forgot__') return { correct: false, expected: '' };
       return { correct: false, expected: '' };

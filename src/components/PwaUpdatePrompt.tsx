@@ -1,95 +1,115 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Typography } from 'antd';
-import { SyncOutlined } from '@ant-design/icons';
+import { CloseOutlined, SyncOutlined } from '@ant-design/icons';
+import { readAutoUpdateState, shouldAutoApplyUpdate } from './pwaUpdateStrategy';
 
 const { Text } = Typography;
 
 export default function PwaUpdatePrompt() {
   const [needRefresh, setNeedRefresh] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const refreshingRef = useRef(false);
+
+  const applyUpdate = useCallback(async (reg?: ServiceWorkerRegistration | null) => {
+    if (!('serviceWorker' in navigator)) return;
+    const registration = reg ?? await navigator.serviceWorker.getRegistration();
+    if (!registration?.waiting) return;
+    setIsApplying(true);
+    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+  }, []);
 
   useEffect(() => {
-    // Listen for service worker updates via the native API
-    if ('serviceWorker' in navigator) {
-      // Check if there's a waiting SW (already installed, waiting to activate)
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        if (reg?.waiting) {
-          setNeedRefresh(true);
-        }
+    if (!('serviceWorker' in navigator)) return;
 
-        // Listen for new SW being found while app is open
-        if (reg) {
-          reg.addEventListener('updatefound', () => {
-            const newSW = reg.installing;
-            if (newSW) {
-              newSW.addEventListener('statechange', () => {
-                if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-                  // New SW installed but waiting for activation
-                  setNeedRefresh(true);
-                }
-              });
+    let cancelled = false;
+    let registration: ServiceWorkerRegistration | undefined;
+
+    const handleReadyWorker = (reg: ServiceWorkerRegistration) => {
+      if (cancelled || !reg.waiting) return;
+      if (shouldAutoApplyUpdate(readAutoUpdateState())) {
+        void applyUpdate(reg);
+      } else {
+        setNeedRefresh(true);
+      }
+    };
+
+    const handleControllerChange = () => {
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
+      window.location.reload();
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'CONTROLLED') {
+        handleControllerChange();
+      }
+    };
+
+    const checkForUpdates = () => {
+      if (document.visibilityState === 'visible') {
+        void registration?.update();
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+
+    navigator.serviceWorker.getRegistration().then((reg) => {
+      if (!reg || cancelled) return;
+      registration = reg;
+      handleReadyWorker(reg);
+
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        if (newSW) {
+          newSW.addEventListener('statechange', () => {
+            if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+              handleReadyWorker(reg);
             }
           });
         }
       });
-    }
-  }, []);
+    });
+
+    document.addEventListener('visibilitychange', checkForUpdates);
+    const interval = window.setInterval(checkForUpdates, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      navigator.serviceWorker.removeEventListener('message', handleMessage);
+      document.removeEventListener('visibilitychange', checkForUpdates);
+      window.clearInterval(interval);
+    };
+  }, [applyUpdate]);
 
   const handleRefresh = async () => {
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg?.waiting) {
-        // Tell the waiting SW to activate
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        // Reload the page to use the new SW
-        window.location.reload();
-      }
-    }
+    await applyUpdate();
+    window.setTimeout(() => {
+      if (!refreshingRef.current) window.location.reload();
+    }, 2500);
   };
 
   if (!needRefresh) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 80,
-        left: 16,
-        right: 16,
-        background: 'var(--primary)',
-        color: '#fff',
-        padding: '14px 20px',
-        borderRadius: 10,
-        boxShadow: '0 6px 20px rgba(22,119,255,0.3)',
-        zIndex: 9999,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 12,
-      }}
-    >
-      <div style={{ flex: 1 }}>
-        <Text style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>
-          🆕 新版本已发布
-        </Text>
-        <br />
-        <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>
-          点击刷新获取最新功能与修复
-        </Text>
-      </div>
-      <Button
-        ghost
-        size="small"
-        icon={<SyncOutlined />}
-        style={{
-          borderColor: 'rgba(255,255,255,0.6)',
-          color: '#fff',
-          borderRadius: 6,
-          whiteSpace: 'nowrap',
-        }}
-        onClick={handleRefresh}
-      >
-        刷新
-      </Button>
+    <div className="pwa-update-backdrop" role="presentation">
+      <section className="pwa-update-dialog" role="dialog" aria-live="polite" aria-label="新版本更新提示">
+        <button className="pwa-update-close" type="button" onClick={() => setNeedRefresh(false)} aria-label="关闭更新提示">
+          <CloseOutlined />
+        </button>
+        <div className="pwa-update-icon" aria-hidden="true">
+          <SyncOutlined spin={isApplying} />
+        </div>
+        <div className="pwa-update-copy">
+          <Text strong>新版本可以使用了</Text>
+          <Text type="secondary">更新包含最新界面与体验优化。当前操作完成后刷新，也可以现在立即切换。</Text>
+        </div>
+        <div className="pwa-update-actions">
+          <Button onClick={() => setNeedRefresh(false)}>稍后</Button>
+          <Button type="primary" icon={<SyncOutlined spin={isApplying} />} loading={isApplying} onClick={handleRefresh}>立即更新</Button>
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
+import { debug } from "../utils/debug";
 import type { User } from '@supabase/supabase-js';
 
 interface Profile {
@@ -55,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await db.banks.update(bank.id!, { userId });
       }
       if (unowned.length > 0) {
-        console.log(`[Auth] Migrated ${unowned.length} unowned banks to user ${userId}`);
+        debug.log(`[Auth] Migrated ${unowned.length} unowned banks to user ${userId}`);
       }
     } catch {
       // 静默失败 — 迁移不是关键路径
@@ -69,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // 安全超时：3 秒后强制结束 loading
     const safetyTimer = setTimeout(() => {
       if (!cancelled) {
-        console.warn('Auth session check timeout - forcing loading=false');
+        debug.warn('Auth session check timeout - forcing loading=false');
         setLoading(false);
       }
     }, 3000);
@@ -87,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }).catch((err) => {
       if (cancelled) return;
       clearTimeout(safetyTimer);
-      console.error('getSession error:', err);
+      debug.error('getSession error:', err);
       setLoading(false);
     });
 
@@ -104,7 +105,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (username: string, password: string) => {
@@ -113,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
     });
-    if (error) return { error: error.message };
+    if (error) return { error: error.message || '登录失败，请检查网络或联系管理员' };
     return {};
   };
 
@@ -126,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         data: { username },
       },
     });
-    if (error) return { error: error.message };
+    if (error) return { error: error.message || '注册失败，请检查网络或联系管理员' };
     // signUp 成功后触发 trigger 自动创建 profile，但需要等待几秒
     // 如果用户存在（已注册），返回提示
     if (data.user?.identities?.length === 0) {
@@ -136,6 +141,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    // 清除当前用户在 IndexedDB 中的练习数据（隔离多账号）
+    try {
+      const { db } = await import('../db');
+      if (user) {
+        await db.sessions.where('userId').equals(user.id).delete();
+        await db.sessionAnswers.where('userId').equals(user.id).delete();
+        await db.userProgress.where('userId').equals(user.id).delete();
+      }
+    } catch {
+      // 静默 — 清理不是关键路径
+    }
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);

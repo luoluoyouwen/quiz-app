@@ -21,6 +21,22 @@ Object.defineProperty(globalThis, 'localStorage', {
   writable: true,
 });
 
+// Mock matchMedia for theme auto-detection
+Object.defineProperty(window, 'matchMedia', {
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }),
+  configurable: true,
+  writable: true,
+});
+
 function mountWithTheme(initialDark?: boolean) {
   if (initialDark !== undefined) {
     localStorage.setItem(STORAGE_KEY, String(initialDark));

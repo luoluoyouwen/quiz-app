@@ -1,4 +1,7 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react';
+import { Button, Typography } from 'antd';
+
+const { Text, Title } = Typography;
 
 interface Props {
   children: ReactNode;
@@ -27,22 +30,18 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return this.props.fallback || (
-        <div style={{ padding: 24, textAlign: 'center', maxWidth: 600, margin: '40px auto' }}>
-          <h2 style={{ color: '#ff4d4f' }}>应用出错</h2>
-          <div style={{ margin: 16, padding: 12, background: '#fff1f0', border: '1px solid #ff4d4f', borderRadius: 8, textAlign: 'left', fontSize: 13, wordBreak: 'break-all' }}>
-            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+        <div className="error-boundary-page">
+          <div className="error-boundary-card">
+            <Text className="subpage-eyebrow">运行异常</Text>
+            <Title level={3}>应用出错</Title>
+            <Text type="secondary">当前页面遇到异常，刷新后会重新加载题库和练习状态。</Text>
+            <pre className="error-boundary-detail">
               {this.state.error?.toString()}
             </pre>
+            <Button type="primary" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              padding: '8px 24px', fontSize: 16, marginTop: 16,
-              background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
-            }}
-          >
-            刷新页面
-          </button>
         </div>
       );
     }

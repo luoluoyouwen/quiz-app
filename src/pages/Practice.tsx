@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Card, Button, Progress, Typography, Radio, Checkbox, Input, Space, Tag, Result, message, Modal,
   Skeleton,
 } from 'antd';
 import {
-  CheckCircleOutlined, CloseCircleOutlined, ArrowLeftOutlined, ReloadOutlined,
+  CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined,
   OrderedListOutlined, FastForwardOutlined, CloudOutlined,
 } from '@ant-design/icons';
 import { db } from '../db';
@@ -20,7 +20,32 @@ import { isCloudId, syncCloudBankToLocal } from '../lib/uploadService';
 import { submitPracticeProgress, fetchBankProgress, submitProgressBeacon } from '../lib/syncService';
 import type { ProgressRecord } from '../lib/syncService';
 import { useAuth } from '../contexts/AuthContext';
+import { debug } from '../utils/debug';
 
+function getOptionIndexFromKeyboardEvent(e: KeyboardEvent): number {
+  const key = e.key || '';
+  const code = e.code || '';
+  const legacyCode = e.keyCode || e.which || 0;
+
+  const digitFromKey = /^[1-9]$/.test(key) ? Number(key) : 0;
+  const digitFromCode = /^(?:Digit|Numpad)([1-9])$/.exec(code)?.[1];
+  const digitFromLegacy = legacyCode >= 49 && legacyCode <= 57
+    ? legacyCode - 48
+    : legacyCode >= 97 && legacyCode <= 105
+      ? legacyCode - 96
+      : 0;
+  const digit = digitFromKey || (digitFromCode ? Number(digitFromCode) : 0) || digitFromLegacy;
+  if (digit >= 1 && digit <= 9) return digit - 1;
+
+  const letter = /^[a-e]$/i.test(key)
+    ? key.toUpperCase()
+    : /^Key[A-E]$/.test(code)
+      ? code.slice(3)
+      : legacyCode >= 65 && legacyCode <= 69
+        ? String.fromCharCode(legacyCode)
+        : '';
+  return letter ? letter.charCodeAt(0) - 65 : -1;
+}
 const getStorageKey = (bankId: string, typeParam: string, questionIds?: number[]): string => {
   const type = typeParam || 'all';
   const extra = questionIds ? '_wrong' : '';
@@ -36,6 +61,30 @@ interface ResumeData {
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+function getQuestionTypeLabel(type?: QuestionType): string {
+  switch (type) {
+    case 'choice': return '选择题';
+    case 'multi': return '多选题';
+    case 'fill': return '填空题';
+    case 'judge': return '判断题';
+    case 'nofill': return '背记题';
+    case 'essay': return '问答题';
+    default: return '题目';
+  }
+}
+
+function getQuestionTypeColor(type?: QuestionType): string {
+  switch (type) {
+    case 'choice': return 'blue';
+    case 'multi': return 'cyan';
+    case 'fill': return 'orange';
+    case 'judge': return 'purple';
+    case 'nofill': return 'gold';
+    case 'essay': return 'green';
+    default: return 'default';
+  }
+}
 
 /** Supabase 题目格式 */
 interface CloudQuestion {
@@ -74,6 +123,7 @@ function mapCloudQuestions(bankId: number, questions: CloudQuestion[], idMap: Ma
       answer: q.answer,
       answers: q.answers || undefined,
       explanation: q.explanation,
+      image: q.image_url || undefined,
     };
   });
 }
@@ -82,10 +132,26 @@ export default function Practice() {
   const { bankId } = useParams<{ bankId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isCloud = bankId ? isCloudId(bankId) : false;
-  const typeParam = (location.state as { type?: string })?.type || 'all';
-  const questionIds = (location.state as { questionIds?: number[] })?.questionIds;
-  const cloudFlag = (location.state as { isCloud?: boolean })?.isCloud || isCloud;
+  const locationState = location.state as { type?: string; questionIds?: number[]; isCloud?: boolean } | null;
+  const storedReviewQuestionIds = useMemo(() => {
+    if (!bankId || locationState?.questionIds || searchParams.get('review') !== '1') return undefined;
+    try {
+      const raw = sessionStorage.getItem(`review_queue_${bankId}`);
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw) as { questionIds?: number[]; ts?: number };
+      if (!Array.isArray(parsed.questionIds)) return undefined;
+      if (parsed.ts && Date.now() - parsed.ts > 24 * 60 * 60 * 1000) return undefined;
+      return parsed.questionIds.filter((item) => typeof item === 'number');
+    } catch {
+      return undefined;
+    }
+  }, [bankId, locationState?.questionIds, searchParams]);
+  const typeParam = searchParams.get('type') || locationState?.type || 'all';
+  const questionIds = locationState?.questionIds || storedReviewQuestionIds;
+  const cloudFlag = locationState?.isCloud || isCloud;
+  const isReviewSession = searchParams.get('review') === '1' || Boolean(questionIds?.length);
 
   // ── 云端数据 ──
   const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(null);
@@ -151,7 +217,7 @@ export default function Practice() {
             answer: q.answer,
             answers: q.answers || null,
             explanation: q.explanation || '',
-            image_url: '',
+            image_url: q.image || '',
             sort_order: i + 1,
           }));
           setCloudQuestions(mapped);
@@ -192,10 +258,37 @@ export default function Practice() {
     totalQuestions, currentQuestion,
     handleAnswer, handleSubmit, handleNext, handlePrev, goToQuestion, handleRestart,
     shuffledOrders,
-  } = useQuizSession(String(syntheticBankId), allQuestions, typeParam, questionIds, resumeState);
+  } = useQuizSession(String(syntheticBankId), allQuestions, typeParam, questionIds, resumeState, user?.id);
+
+  const isSubmitted = submitted[currentIndex];
 
   // Question grid
   const [gridOpen, setGridOpen] = useState(false);
+
+  const openModal = (modal: 'grid' | 'resume') => {
+    if (modal === 'grid') setGridOpen(true);
+    if (modal === 'resume') setResumeModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    if (!next.get('type')) next.set('type', typeParam);
+    next.set('modal', modal);
+    setSearchParams(next);
+  };
+
+  const closeModal = (modal?: 'grid' | 'resume') => {
+    if (!modal || modal === 'grid') setGridOpen(false);
+    if (!modal || modal === 'resume') setResumeModalOpen(false);
+    if (!modal || searchParams.get('modal') === modal) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('modal');
+      setSearchParams(next, { replace: true });
+    }
+  };
+
+  useEffect(() => {
+    const modal = searchParams.get('modal');
+    setGridOpen(modal === 'grid');
+    if (modal !== 'resume') setResumeModalOpen(false);
+  }, [searchParams]);
 
   // Check for saved progress on mount
   useEffect(() => {
@@ -206,26 +299,26 @@ export default function Practice() {
           const data: ResumeData = JSON.parse(raw);
           if (data.timestamp && Date.now() - data.timestamp < 86400000) {
             setSavedResume(data);
-            setResumeModalOpen(true);
+            openModal('resume');
           } else {
             localStorage.removeItem(getStorageKey(bankId, typeParam, questionIds));
           }
         }
       } catch { /* ignore corrupt data */ }
     }
-  }, [bankId]);
+  }, [bankId, typeParam, questionIds]);
 
   const handleResume = () => {
     if (savedResume) {
       setResumeState(savedResume);
-      setResumeModalOpen(false);
+      closeModal('resume');
     }
   };
 
   const handleNoResume = () => {
     localStorage.removeItem(getStorageKey(bankId!, typeParam, questionIds));
     setSavedResume(null);
-    setResumeModalOpen(false);
+    closeModal('resume');
     setResumeState(null);
   };
 
@@ -256,7 +349,9 @@ export default function Practice() {
         localStorage.setItem(getStorageKey(bankId, typeParam, questionIds), JSON.stringify({
           currentIndex, userAnswers, submitted, timestamp: Date.now(),
         }));
-      } catch {}
+      } catch {
+        // Closing the browser can make local persistence unavailable.
+      }
     };
     window.addEventListener('beforeunload', save);
     return () => window.removeEventListener('beforeunload', save);
@@ -286,11 +381,19 @@ export default function Practice() {
     if (cloudQuestions.length === 0) return;
 
     fetchBankProgress(user.id, bankId).then(setCloudProgress).catch((err) => {
-      console.warn('拉取云端进度失败:', err.message);
+      debug.warn('拉取云端进度失败:', err.message);
     });
   }, [cloudFlag, user, bankId, cloudQuestions]);
 
-  // ── P4: 练习完成时提交进度 ──
+  // ── 云端：练习开始时记录时间 ──
+  const sessionStartRef = useRef<number>(0);
+  useEffect(() => {
+    if (cloudFlag && session && session.questions.length > 0 && sessionStartRef.current === 0) {
+      sessionStartRef.current = Date.now();
+    }
+  }, [cloudFlag, session]);
+
+  // ── P4: 练习完成时提交进度 + 会话记录 ──
   const progressSubmittedRef = useRef(false);
 
   useEffect(() => {
@@ -316,6 +419,30 @@ export default function Practice() {
     if (records.length > 0) {
       submitPracticeProgress(records, user.id).then(() => {
         progressSubmittedRef.current = true;
+
+        // 同步提交练习会话记录
+        const correctCount = records.filter(r => r.isCorrect).length;
+        const wrongCount = records.length - correctCount;
+        const durationMs = sessionStartRef.current > 0
+          ? Date.now() - sessionStartRef.current
+          : 0;
+        const startedAt = new Date(
+          sessionStartRef.current > 0
+            ? sessionStartRef.current
+            : Date.now() - durationMs
+        );
+
+        supabase.rpc('submit_practice_session', {
+          p_bank_id: bankId,
+          p_started_at: startedAt.toISOString(),
+          p_ended_at: new Date().toISOString(),
+          p_total_questions: records.length,
+          p_correct_count: correctCount,
+          p_wrong_count: wrongCount,
+          p_duration_seconds: Math.round(durationMs / 1000),
+        }).then(({ error }: any) => {
+          if (error) debug.warn('提交练习会话失败:', error.message);
+        });
       });
     } else {
       progressSubmittedRef.current = true;
@@ -357,12 +484,14 @@ export default function Practice() {
         });
       }
       if (records.length > 0) {
+        const userId = d.user.id;
         // 使用 sendBeacon 确保页面关闭前发出请求
-        const ok = submitProgressBeacon(records, d.user.id);
-        if (!ok) {
-          // fallback: 异步提交（可能在页面关闭时被截断，但有总比没有好）
-          submitPracticeProgress(records, d.user.id);
-        }
+        const ok = submitProgressBeacon(records, userId);
+        void ok.then((sent) => {
+          if (!sent) {
+            void submitPracticeProgress(records, userId);
+          }
+        });
       }
     };
   }, []); // 空 deps：只在 unmount 时执行
@@ -384,9 +513,111 @@ export default function Practice() {
     touchStartRef.current = null;
   }, [currentIndex, totalQuestions, handleNext, handlePrev]);
 
+  // ── Keyboard shortcuts (desktop) ──
+  // Use ref pattern: listener registered ONCE, always calls latest state via refs.
+  // This avoids race conditions where useEffect cleanup/re-register drops key events.
+  const kbRef = useRef({
+    currentIndex, totalQuestions, isSubmitted, currentQuestion, userAnswers,
+    shuffledOrders, handleNext, handlePrev, handleSubmit, handleAnswer,
+  });
+  // Always keep ref current — no useEffect deps needed
+  kbRef.current = {
+    currentIndex, totalQuestions, isSubmitted, currentQuestion, userAnswers,
+    shuffledOrders, handleNext, handlePrev, handleSubmit, handleAnswer,
+  };
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const ctx = kbRef.current;
+      const target = e.target as HTMLElement;
+      const tag = target?.tagName;
+      const inputType = tag === 'INPUT' ? (target as HTMLInputElement).type : '';
+      if (inputType === 'text' || inputType === 'number' || inputType === 'search'
+        || inputType === 'email' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+
+      const { code } = e;
+
+      // Navigation
+      if (code === 'ArrowRight' || code === 'Space') {
+        e.preventDefault();
+        if (ctx.currentIndex < ctx.totalQuestions - 1) ctx.handleNext();
+        return;
+      }
+      if (code === 'ArrowLeft') {
+        e.preventDefault();
+        if (ctx.currentIndex > 0) ctx.handlePrev();
+        return;
+      }
+      if (code === 'Enter' && !ctx.isSubmitted) {
+        e.preventDefault();
+        ctx.handleSubmit();
+        return;
+      }
+
+      // Option selection
+      if (ctx.isSubmitted) return;
+      const q = ctx.currentQuestion;
+      if (!q || (q.type !== 'choice' && q.type !== 'multi')) return;
+      if (!q.options?.length) return;
+
+      const order = ctx.shuffledOrders?.[q.id ?? -1];
+      const indices = order ?? q.options.map((_, i) => i);
+
+      // Map keyboard input to option index. Some Android/Windows browsers report
+      // NumLock keypad events inconsistently, so this also checks legacy codes.
+      const optIdx = getOptionIndexFromKeyboardEvent(e);
+
+      if (optIdx >= 0 && optIdx < indices.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        const originalLabel = String.fromCharCode(65 + indices[optIdx]);
+        if (q.type === 'multi') {
+          const cur = (ctx.userAnswers[ctx.currentIndex] || '').split('').filter(Boolean);
+          const exists = cur.includes(originalLabel);
+          const next = exists ? cur.filter(c => c !== originalLabel) : [...cur, originalLabel];
+          ctx.handleAnswer(next.sort().join(''));
+        } else {
+          ctx.handleAnswer(originalLabel);
+        }
+      }
+    };
+    // Capture phase + registered once (empty deps = never re-registers)
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── SM-2 spaced repetition update on session completion ──
+  useEffect(() => {
+    if (!sessionDone || !session) return;
+    const now = Date.now();
+    (async () => {
+      const { db } = await import('../db');
+      const { answerToQuality, updateSM2 } = await import('../utils/quiz/sm2');
+      for (let i = 0; i < session.questions.length; i++) {
+        const q = session.questions[i];
+        const isCorrect = checkAnswer(q, userAnswers[i] || '').correct;
+        const quality = answerToQuality(isCorrect, 5); // approximate 5s for time
+        const key = `${bankId}__${q.id}`;
+        try {
+          const existing = await db.sm2Data.where('key').equals(key).first();
+          const updated = updateSM2(existing || undefined, quality, now);
+          if (existing) {
+            await db.sm2Data.update(existing.id!, updated);
+          } else {
+            await db.sm2Data.put({ key, ...updated });
+          }
+        } catch { /* ignore — don't block the UI */ }
+      }
+    })();
+  }, [sessionDone]);
+
   // Essay flashcard state
   const [answerRevealed, setAnswerRevealed] = useState(false);
-  useEffect(() => { setAnswerRevealed(false); }, [currentIndex]);
+  const [memoryFeedback, setMemoryFeedback] = useState<"remembered" | "review" | null>(null);
+  useEffect(() => {
+    setAnswerRevealed(false);
+    setMemoryFeedback(null);
+  }, [currentIndex]);
 
   // Save lastPracticed to local Dexie (only for local banks, cloud handled later)
   useEffect(() => {
@@ -420,7 +651,6 @@ export default function Practice() {
 
   // Auto advance on correct
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isSubmitted = submitted[currentIndex];
   const userAnswer = userAnswers[currentIndex] || '';
   const checkResult = isSubmitted && currentQuestion ? checkAnswer(currentQuestion, userAnswer) : null;
   const isCorrect = checkResult?.correct;
@@ -472,24 +702,33 @@ export default function Practice() {
           subTitle={`${totalQuestions} 题，正确 ${correctCount} 题，错误 ${totalQuestions - correctCount} 题`}
           extra={
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <div className="practice-result-status-row">
+                <span className="is-mastered"><CheckCircleOutlined /> 本轮已掌握 {correctCount}</span>
+                <span className={wrongQuestions.length > 0 ? 'is-review has-items' : 'is-review'}><CloseCircleOutlined /> 需复习 {wrongQuestions.length}</span>
+              </div>
               <Space>
                 <Button icon={<ReloadOutlined />} onClick={handleRestart}>重新刷题（全部）</Button>
                 <Button icon={<FastForwardOutlined />} onClick={() => {
-                  const t = location.state as { type?: string } || {};
-                  navigate(`/practice/${bankId}`, { state: { type: t.type || 'all', isCloud: cloudFlag } });
-                }}>再来一局</Button>
+                  const t = location.state as { type?: string; questionIds?: number[] } || {};
+                  const nextType = t.type || typeParam || 'all';
+                  const nextQuestionIds = t.questionIds || questionIds;
+                  const reviewSuffix = nextQuestionIds?.length ? '&review=1' : '';
+                  navigate(`/practice/${bankId}?type=${nextType}${reviewSuffix}`, {
+                    state: { type: nextType, questionIds: nextQuestionIds, isCloud: cloudFlag },
+                  });
+                }}>再刷一组</Button>
                 <Button onClick={() => navigate(`/bank/${bankId}`)}>返回题库</Button>
               </Space>
               {!cancelReturn && (
                 <Button type="link" size="small" onClick={() => setCancelReturn(true)} style={{ opacity: 0.6 }}>
-                  即将自动返回题库… 点击取消
+                  5 秒后自动返回题库… 点击取消
                 </Button>
               )}
             </div>
           }
         />
         {wrongQuestions.length > 0 && (
-          <Card title={`错题回顾 (${wrongQuestions.length} 题)`} style={{ marginTop: 16 }}>
+          <Card className="practice-review-card" title={`需复习回顾 (${wrongQuestions.length} 题)`} style={{ marginTop: 16 }}>
             {wrongQuestions.map((r) => (
               <QuestionCard
                 key={r.question.id}
@@ -508,13 +747,13 @@ export default function Practice() {
               icon={<CloudOutlined />}
               onClick={async () => {
                 if (bankId) {
-                  const added = await syncCloudBankToLocal(bankId, bank.name);
+                  const added = await syncCloudBankToLocal(bankId, bank.name, user!.id);
                   if (added > 0) message.success(`已缓存 ${added} 题到本地`);
                   else message.info('已缓存到本地');
                 }
               }}
             >
-              缓存该题库到本地（离线可用）
+              💾 缓存到本地
             </Button>
           </div>
         )}
@@ -524,28 +763,35 @@ export default function Practice() {
 
   // ── Loading / Empty ──
 
-  if (dataLoading) {
-    return (
-      <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
-        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
-        <Card><Skeleton active paragraph={{ rows: 4 }} /></Card>
-        <div style={{ textAlign: 'center', marginTop: 12 }}>
-          <Text type="secondary" style={{ fontSize: 13 }}>加载中… 请稍候</Text>
+  const practiceLoadingView = (
+    <div className="practice-page practice-loading-page" style={{ maxWidth: 960, margin: '0 auto' }}>
+      <div className="practice-header practice-loading-header">
+        <Skeleton active paragraph={{ rows: 1 }} title={false} />
+      </div>
+      <div className="practice-workbench practice-loading-workbench" aria-label="刷题加载中">
+        <div className="practice-workbench-glow" aria-hidden="true" />
+        <div className="practice-phone-shell">
+          <div className="practice-phone-top" aria-hidden="true" />
+          <div className="practice-phone-screen">
+            <Card className="practice-progress-card" size="small">
+              <Skeleton active paragraph={{ rows: 1 }} title={false} />
+            </Card>
+            <Card className="practice-question-card">
+              <Skeleton active paragraph={{ rows: 4 }} title={{ width: '45%' }} />
+            </Card>
+            <div className="practice-loading-caption">正在同步本题库数据</div>
+          </div>
         </div>
       </div>
-    );
+    </div>
+  );
+
+  if (dataLoading) {
+    return practiceLoadingView;
   }
 
   if (!bank || !allQuestions || !session) {
-    return (
-      <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
-        <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
-        <Card><Skeleton active paragraph={{ rows: 4 }} /></Card>
-        <div style={{ textAlign: 'center', marginTop: 12 }}>
-          <Text type="secondary" style={{ fontSize: 13 }}>加载中… 请稍候</Text>
-        </div>
-      </div>
-    );
+    return practiceLoadingView;
   }
 
   if (totalQuestions === 0) {
@@ -563,6 +809,8 @@ export default function Practice() {
 
   // ── Practice View ──
 
+  const effectiveFlashcardMode = flashcardMode && currentQuestion?.type !== 'essay';
+
   const handleSubmitClick = () => {
     if (!userAnswers[currentIndex] && userAnswers[currentIndex] !== '') {
       message.warning('请先作答');
@@ -571,88 +819,147 @@ export default function Practice() {
     handleSubmit();
   };
 
+  const memoryActionClass = ["practice-memory-actions", memoryFeedback ? "is-" + memoryFeedback : ""].filter(Boolean).join(" ");
+
+  const handleMemorySelfCheck = (remembered: boolean) => {
+    if (memoryFeedback) return;
+    const nextFeedback = remembered ? "remembered" : "review";
+    setMemoryFeedback(nextFeedback);
+    handleSubmit(remembered ? "__remembered__" : "__forgot__");
+    message.open({
+      type: remembered ? "success" : "warning",
+      content: remembered ? "已记录为掌握，可在题库详情查看" : "已加入需复习队列，可在题库详情复习",
+      duration: 0.7,
+    });
+    window.setTimeout(() => {
+      setMemoryFeedback(null);
+      handleNext();
+    }, 520);
+  };
+
+  const renderMemoryActions = () => (
+    <div className="practice-memory-wrap">
+      <Space className={memoryActionClass} size="large">
+        <Button
+          className="practice-memory-mastered"
+          size="large"
+          disabled={Boolean(memoryFeedback)}
+          onClick={() => handleMemorySelfCheck(true)}
+          icon={<CheckCircleOutlined />}
+        >
+          已掌握
+        </Button>
+        <Button
+          className="practice-memory-review"
+          size="large"
+          disabled={Boolean(memoryFeedback)}
+          onClick={() => handleMemorySelfCheck(false)}
+          icon={<CloseCircleOutlined />}
+        >
+          再看一遍
+        </Button>
+      </Space>
+      {memoryFeedback && (
+        <Text className={"practice-memory-feedback is-" + memoryFeedback}>
+          {memoryFeedback === "remembered" ? "已记录为掌握，可在题库详情查看" : "已加入需复习队列，可在题库详情复习"}
+        </Text>
+      )}
+    </div>
+  );
+
   return (
     <div
-      style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}
+      className="practice-page practice-workbench-page"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/bank/${bankId}`)} />
-        <Title level={4} style={{ margin: 0, flex: 1 }}>
+      <div className="practice-header practice-top-card">
+        <Title className="practice-bank-title" level={4} style={{ margin: 0, flex: 1 }}>
           {cloudFlag && <Tag color="blue" style={{ lineHeight: '18px', fontSize: 11 }}>☁️</Tag>}
           {bank.name}
         </Title>
+        {currentQuestion?.type !== 'essay' && (
         <Button
+          className="practice-flashcard-toggle"
           size="small"
           type={flashcardMode ? 'primary' : 'default'}
           onClick={() => { setFlashcardMode(!flashcardMode); setAnswerRevealed(false); }}
         >
-          {flashcardMode ? '📖 背题中' : '📖 背题'}
+          {flashcardMode ? '背题中' : '背题'}
         </Button>
+        )}
       </div>
 
+      <div className="practice-workbench" aria-label="刷题工作台">
+        <div className="practice-workbench-glow" aria-hidden="true" />
+        <div className="practice-side-card practice-side-doc" aria-hidden="true">
+          <span className="practice-side-icon">{isReviewSession ? 'R' : currentQuestion?.type === 'choice' ? 'A' : currentQuestion?.type === 'multi' ? 'M' : 'Q'}</span>
+          <span>{isReviewSession ? '需复习' : currentQuestion?.type === 'choice' ? '单选题' : currentQuestion?.type === 'multi' ? '多选题' : '题目卡'}</span>
+        </div>
+        <div className="practice-side-card practice-side-result" aria-hidden="true">
+          <span>第 {currentIndex + 1} 题</span>
+          <strong>{Math.round(((currentIndex + 1) / totalQuestions) * 100)}%</strong>
+        </div>
+        <div className="practice-phone-shell">
+          <div className="practice-phone-top" aria-hidden="true" />
+          <div className="practice-phone-screen">
       {/* Progress */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text strong>进度</Text>
+      <Card className="practice-progress-card" size="small">
+        <div className="practice-progress-head">
+          <Space>
+            <Text strong>进度</Text>
+            {currentQuestion && (
+              <Tag color={isReviewSession ? 'gold' : getQuestionTypeColor(currentQuestion.type)} style={{ fontSize: 11, lineHeight: '18px' }}>
+                {isReviewSession ? '需复习' : getQuestionTypeLabel(currentQuestion.type)}
+              </Tag>
+            )}
+          </Space>
           <Text type="secondary">{currentIndex + 1} / {totalQuestions}</Text>
         </div>
         <Progress
           percent={Math.round(((currentIndex + 1) / totalQuestions) * 100)}
           showInfo={false}
-          strokeColor="#1677ff"
+          strokeColor="var(--app-primary)"
         />
       </Card>
 
       {/* Question Card */}
-      <Card style={{ marginBottom: 16 }}>
+      <Card className="practice-question-card">
         {currentQuestion && (
-          <div style={{ marginBottom: 12 }}>
-            <Tag color={
-              currentQuestion.type === 'choice' ? 'blue' :
-              currentQuestion.type === 'multi' ? 'cyan' :
-              currentQuestion.type === 'fill' ? 'orange' :
-              currentQuestion.type === 'judge' ? 'purple' :
-              currentQuestion.type === 'nofill' ? 'gold' :
-              'green'
-            }>
-              {currentQuestion.type === 'choice' ? '选择题' :
-               currentQuestion.type === 'multi' ? '多选题' :
-               currentQuestion.type === 'fill' ? '填空题' :
-               currentQuestion.type === 'judge' ? '判断题' :
-               currentQuestion.type === 'nofill' ? '无空填空题' : '问答题'}
+          <div className="practice-question-meta">
+            <Tag color={isReviewSession ? 'gold' : getQuestionTypeColor(currentQuestion.type)}>
+              {isReviewSession ? '需复习' : getQuestionTypeLabel(currentQuestion.type)}
             </Tag>
+            {isReviewSession && (
+              <Tag color={getQuestionTypeColor(currentQuestion.type)}>{getQuestionTypeLabel(currentQuestion.type)}</Tag>
+            )}
             {currentQuestion.type === 'multi' && (
               <Tag color="cyan">可多选</Tag>
             )}
           </div>
         )}
 
-        <Title level={5} style={{ whiteSpace: 'pre-wrap', marginBottom: 20 }}>
+        <Title className="practice-question-title" level={5}>
           {currentQuestion?.content}
         </Title>
         <QuestionImage image={currentQuestion?.image} />
 
         {/* Flashcard Mode */}
-        {flashcardMode ? (
+        {effectiveFlashcardMode ? (
           <div>
             {!answerRevealed ? (
               <Button
+                className="practice-reveal-answer"
                 type="primary"
                 size="large"
                 onClick={() => setAnswerRevealed(true)}
-                style={{ width: '100%', height: 48, fontSize: 16, marginTop: 8 }}
               >
                 显示答案
               </Button>
             ) : (
               <div>
-                <Card
-                  size="small"
-                  style={{ marginBottom: 16, background: 'var(--bg-success)', border: '1px solid var(--border-success)' }}
-                >
+                <Card className="practice-answer-card" size="small">
                   <Text strong style={{ fontSize: 15 }}>参考答案：</Text>
                   <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
                     <Text>
@@ -671,7 +978,7 @@ export default function Practice() {
                     <QuestionImage image={currentQuestion?.image} caption="题目配图" />
                   </div>
                   {currentQuestion?.explanation && (
-                    <div style={{ marginTop: 12, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
+                    <div className="practice-explanation-box">
                       <Text type="secondary">
                         <Text strong>解析: </Text>
                         {currentQuestion.explanation}
@@ -679,40 +986,7 @@ export default function Practice() {
                     </div>
                   )}
                 </Card>
-                <Space size="large" style={{ display: 'flex', justifyContent: 'center' }}>
-                  <Button
-                    size="large"
-                    style={{
-                      width: 160, height: 60, fontSize: 18,
-                      background: 'var(--bg-success)', border: '2px solid var(--color-success)',
-                      color: 'var(--color-success)',
-                    }}
-                    onClick={() => {
-                      handleAnswer('__remembered__');
-                      handleSubmit();
-                      handleNext();
-                    }}
-                    icon={<CheckCircleOutlined />}
-                  >
-                    记住了
-                  </Button>
-                  <Button
-                    size="large"
-                    style={{
-                      width: 160, height: 60, fontSize: 18,
-                      background: 'var(--bg-error)', border: '2px solid var(--color-error)',
-                      color: 'var(--color-error)',
-                    }}
-                    onClick={() => {
-                      handleAnswer('__forgot__');
-                      handleSubmit();
-                      handleNext();
-                    }}
-                    icon={<CloseCircleOutlined />}
-                  >
-                    没记住
-                  </Button>
-                </Space>
+                {renderMemoryActions()}
               </div>
             )}
           </div>
@@ -724,9 +998,9 @@ export default function Practice() {
             value={userAnswer}
             onChange={(e) => handleAnswer(e.target.value)}
             disabled={isSubmitted}
-            style={{ width: '100%' }}
+            className="practice-option-group"
           >
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <div className="practice-option-stack">
               {(() => {
                 const order = shuffledOrders?.[currentQuestion?.id ?? -1];
                 const opts = currentQuestion.options ?? [];
@@ -735,29 +1009,30 @@ export default function Practice() {
                   const displayLabel = String.fromCharCode(65 + displayIdx);
                   const originalLabel = String.fromCharCode(65 + origIdx);
                   const text = opts[origIdx];
+                  const isSelected = userAnswer.toLowerCase() === originalLabel.toLowerCase();
                   const isOptCorrect = isSubmitted && currentQuestion.answer.toLowerCase() === originalLabel.toLowerCase();
-                  const isOptWrong = isSubmitted && userAnswer.toLowerCase() === originalLabel.toLowerCase() && !isOptCorrect;
+                  const isOptWrong = isSubmitted && isSelected && !isOptCorrect;
+                  const optionClass = [
+                    'practice-option-card',
+                    isSelected ? 'is-selected' : '',
+                    isOptCorrect ? 'is-correct' : '',
+                    isOptWrong ? 'is-wrong' : '',
+                    isSubmitted ? 'is-disabled' : '',
+                  ].filter(Boolean).join(' ');
+
                   return (
-                    <div
-                      key={originalLabel}
-                      style={{
-                        padding: '10px 12px',
-                        border: `1px solid ${
-                          isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
-                        }`,
-                        borderRadius: 8,
-                        background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
-                        cursor: isSubmitted ? 'default' : 'pointer',
-                      }}
-                    >
-                      <Radio value={originalLabel}>
-                        <Text strong>{displayLabel}.</Text> {text}
+                    <div key={originalLabel} className={optionClass}>
+                      <Radio value={originalLabel} className="practice-option-control">
+                        <span className="practice-option-content">
+                          <span className="practice-option-letter">{displayLabel}</span>
+                          <span className="practice-option-text">{text}</span>
+                        </span>
                       </Radio>
                     </div>
                   );
                 });
               })()}
-            </Space>
+            </div>
           </Radio.Group>
         )}
 
@@ -769,9 +1044,9 @@ export default function Practice() {
               handleAnswer((checkedValues as string[]).sort().join(''));
             }}
             disabled={isSubmitted}
-            style={{ width: '100%' }}
+            className="practice-option-group"
           >
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <div className="practice-option-stack">
               {(() => {
                 const order = shuffledOrders?.[currentQuestion?.id ?? -1];
                 const opts = currentQuestion.options ?? [];
@@ -780,29 +1055,32 @@ export default function Practice() {
                   const displayLabel = String.fromCharCode(65 + displayIdx);
                   const originalLabel = String.fromCharCode(65 + origIdx);
                   const text = opts[origIdx];
-                  const isOptCorrect = isSubmitted && currentQuestion.answer.toUpperCase().includes(originalLabel);
-                  const isOptWrong = isSubmitted && !currentQuestion.answer.toUpperCase().includes(originalLabel) && (userAnswer || '').toUpperCase().includes(originalLabel);
+                  const answerUpper = currentQuestion.answer.toUpperCase();
+                  const userAnswerUpper = (userAnswer || '').toUpperCase();
+                  const isSelected = userAnswerUpper.includes(originalLabel);
+                  const isOptCorrect = isSubmitted && answerUpper.includes(originalLabel);
+                  const isOptWrong = isSubmitted && !answerUpper.includes(originalLabel) && isSelected;
+                  const optionClass = [
+                    'practice-option-card',
+                    isSelected ? 'is-selected' : '',
+                    isOptCorrect ? 'is-correct' : '',
+                    isOptWrong ? 'is-wrong' : '',
+                    isSubmitted ? 'is-disabled' : '',
+                  ].filter(Boolean).join(' ');
+
                   return (
-                    <div
-                      key={originalLabel}
-                      style={{
-                        padding: '10px 12px',
-                        border: `1px solid ${
-                          isOptCorrect ? 'var(--color-success)' : isOptWrong ? 'var(--color-error)' : 'var(--border)'
-                        }`,
-                        borderRadius: 8,
-                        background: isOptCorrect ? 'var(--bg-success)' : isOptWrong ? 'var(--bg-error)' : 'var(--bg-container)',
-                        cursor: isSubmitted ? 'default' : 'pointer',
-                      }}
-                    >
-                      <Checkbox value={originalLabel}>
-                        <Text strong>{displayLabel}.</Text> {text}
+                    <div key={originalLabel} className={optionClass}>
+                      <Checkbox value={originalLabel} className="practice-option-control">
+                        <span className="practice-option-content">
+                          <span className="practice-option-letter">{displayLabel}</span>
+                          <span className="practice-option-text">{text}</span>
+                        </span>
                       </Checkbox>
                     </div>
                   );
                 });
               })()}
-            </Space>
+            </div>
           </Checkbox.Group>
         )}
 
@@ -810,7 +1088,7 @@ export default function Practice() {
         {currentQuestion?.type === 'fill' && (
           <div>
             {currentQuestion.answers && currentQuestion.answers.length > 1 ? (
-              <Space direction="vertical" style={{ width: '100%' }}>
+              <Space orientation="vertical" style={{ width: '100%' }}>
                 {currentQuestion.answers.map((_, idx) => {
                   const blankAnswers = userAnswer ? userAnswer.split('||') : [];
                   return (
@@ -909,46 +1187,13 @@ export default function Practice() {
                     </div>
                   )}
                 </Card>
-                <Space size="large" style={{ display: 'flex', justifyContent: 'center' }}>
-                  <Button
-                    size="large"
-                    style={{
-                      width: 160, height: 60, fontSize: 18,
-                      background: 'var(--bg-success)', border: '2px solid var(--color-success)',
-                      color: 'var(--color-success)',
-                    }}
-                    onClick={() => {
-                      handleAnswer('__remembered__');
-                      handleSubmit();
-                      handleNext();
-                    }}
-                    icon={<CheckCircleOutlined />}
-                  >
-                    记住了
-                  </Button>
-                  <Button
-                    size="large"
-                    style={{
-                      width: 160, height: 60, fontSize: 18,
-                      background: 'var(--bg-error)', border: '2px solid var(--color-error)',
-                      color: 'var(--color-error)',
-                    }}
-                    onClick={() => {
-                      handleAnswer('__forgot__');
-                      handleSubmit();
-                      handleNext();
-                    }}
-                    icon={<CloseCircleOutlined />}
-                  >
-                    没记住
-                  </Button>
-                </Space>
+                {renderMemoryActions()}
               </div>
             )}
           </div>
         )}
 
-        {/* 无空填空题 */}
+        {/* 背记题 */}
         {currentQuestion?.type === 'nofill' && (
           <div>
             {!answerRevealed ? (
@@ -972,40 +1217,7 @@ export default function Practice() {
                   </div>
                   <QuestionImage image={currentQuestion?.image} />
                 </Card>
-                <Space size="large" style={{ display: 'flex', justifyContent: 'center' }}>
-                  <Button
-                    size="large"
-                    style={{
-                      width: 160, height: 60, fontSize: 18,
-                      background: 'var(--bg-success)', border: '2px solid var(--color-success)',
-                      color: 'var(--color-success)',
-                    }}
-                    onClick={() => {
-                      handleAnswer('__remembered__');
-                      handleSubmit();
-                      handleNext();
-                    }}
-                    icon={<CheckCircleOutlined />}
-                  >
-                    记住了
-                  </Button>
-                  <Button
-                    size="large"
-                    style={{
-                      width: 160, height: 60, fontSize: 18,
-                      background: 'var(--bg-error)', border: '2px solid var(--color-error)',
-                      color: 'var(--color-error)',
-                    }}
-                    onClick={() => {
-                      handleAnswer('__forgot__');
-                      handleSubmit();
-                      handleNext();
-                    }}
-                    icon={<CloseCircleOutlined />}
-                  >
-                    没记住
-                  </Button>
-                </Space>
+                {renderMemoryActions()}
               </div>
             )}
           </div>
@@ -1014,7 +1226,7 @@ export default function Practice() {
         {/* Submit for fill */}
         {currentQuestion?.type === 'fill' && !isSubmitted && (
           <Button type="primary" onClick={handleSubmitClick} style={{ marginTop: 8 }}>
-            提交答案
+            确认提交 (Enter)
           </Button>
         )}
         </>
@@ -1024,11 +1236,8 @@ export default function Practice() {
       {/* Result feedback */}
       {isSubmitted && currentQuestion && checkResult && !flashcardMode && (
         <Card
+          className={isCorrect ? 'practice-feedback-card is-correct' : 'practice-feedback-card is-wrong'}
           size="small"
-          style={{
-            marginBottom: 16,
-            borderLeft: `3px solid ${isCorrect ? 'var(--color-success)' : 'var(--color-error)'}`,
-          }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             {isCorrect ? (
@@ -1054,12 +1263,33 @@ export default function Practice() {
               <Text style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>
                 {currentQuestion.type === 'judge'
                   ? (checkResult.expected === '对' ? '✅ 对' : '❌ 错')
-                  : checkResult.expected}
+                  : currentQuestion.type === 'multi' || currentQuestion.type === 'choice'
+                    ? (() => {
+                        const order = shuffledOrders?.[currentQuestion?.id ?? -1];
+                        if (!order) return checkResult.expected;
+                        // Build reverse map: originalIndex -> displayPosition
+                        const reverseMap: Record<number, number> = {};
+                        order.forEach((origIdx, displayPos) => { reverseMap[origIdx] = displayPos; });
+                        // Convert each answer letter from file-space to display-space
+                        const displayAnswer = checkResult.expected
+                          .toUpperCase()
+                          .split('')
+                          .map(c => {
+                            const origIdx = c.charCodeAt(0) - 65;
+                            if (origIdx < 0 || origIdx >= order.length) return c;
+                            const displayPos = reverseMap[origIdx];
+                            return displayPos !== undefined ? String.fromCharCode(65 + displayPos) : c;
+                          })
+                          .sort()
+                          .join('');
+                        return displayAnswer;
+                      })()
+                    : checkResult.expected}
               </Text>
             </div>
           )}
           {currentQuestion.explanation && (
-            <div style={{ marginTop: 4, padding: 8, background: 'var(--bg-warning)', borderRadius: 4, border: '1px solid var(--border-warning)' }}>
+            <div className="practice-explanation-box">
               <Text type="secondary">
                 <Text strong>解析: </Text>
                 {currentQuestion.explanation}
@@ -1070,7 +1300,7 @@ export default function Practice() {
       )}
 
       {/* Action buttons */}
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div className="practice-action-row">
         {flashcardMode ? (
           answerRevealed ? null : (
             <Text type="secondary" style={{ textAlign: 'center', width: '100%' }}>
@@ -1084,34 +1314,44 @@ export default function Practice() {
         ) : (
           currentQuestion?.type !== 'fill' && currentQuestion?.type !== 'essay' && currentQuestion?.type !== 'nofill' && (
             <Button type="primary" size="large" onClick={handleSubmitClick} style={{ width: '100%' }}>
-              提交答案
+              确认提交 (Enter)
             </Button>
           )
         )}
       </div>
 
+          </div>
+        </div>
+      </div>
+
       {/* Question grid */}
-      <Button
-        type="primary"
-        shape="circle"
-        size="large"
-        icon={<OrderedListOutlined />}
-        onClick={() => setGridOpen(true)}
-        style={{
-          position: 'fixed', bottom: 24, right: 24,
-          width: 48, height: 48, zIndex: 100,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-        }}
-      />
+      {!gridOpen && (
+        <Button
+          type="primary"
+          shape="circle"
+          size="large"
+          icon={<OrderedListOutlined />}
+          onClick={() => openModal('grid')}
+          className="practice-grid-button"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(112px + env(safe-area-inset-bottom))',
+            right: 16,
+            width: 52, height: 52, zIndex: 1200,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          }}
+        />
+      )}
 
       <Modal
+        className="practice-grid-modal"
         title="题目列表"
         open={gridOpen}
-        onCancel={() => setGridOpen(false)}
+        onCancel={() => closeModal('grid')}
         footer={null}
         width={360}
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="practice-grid-list">
           {session && session.questions.map((q, i) => {
             const ans = userAnswers[i];
             const isAnswered = ans !== undefined && ans !== '';
@@ -1122,7 +1362,7 @@ export default function Practice() {
                 key={i}
                 size="small"
                 type={isCurrent ? 'primary' : undefined}
-                onClick={() => { goToQuestion(i); setGridOpen(false); }}
+                onClick={() => { goToQuestion(i); closeModal('grid'); }}
                 style={{
                   width: 44, height: 44,
                   fontWeight: isCurrent ? 'bold' : 'normal',
@@ -1149,6 +1389,7 @@ export default function Practice() {
 
       {/* Resume modal */}
       <Modal
+        className="practice-resume-modal"
         title="发现未完成的练习"
         open={resumeModalOpen}
         onCancel={handleNoResume}

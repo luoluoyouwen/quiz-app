@@ -1,501 +1,539 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Button, Modal, Typography, Statistic, Empty, Tooltip, message, Tag, List, Skeleton, Space } from 'antd';
-import { ImportOutlined, RightCircleOutlined, DeleteOutlined, InfoCircleOutlined, BookOutlined, QuestionCircleOutlined, TrophyOutlined, CloudOutlined } from '@ant-design/icons';
+import { lazy, Suspense, useState, useMemo, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Card, Row, Col, Button, Modal, Typography, Statistic, Empty, message, Tag, Skeleton, Space } from 'antd';
+import {
+  ImportOutlined,
+  RightCircleOutlined,
+  DeleteOutlined,
+  BookOutlined,
+  QuestionCircleOutlined,
+  TrophyOutlined,
+  CloudOutlined,
+  FileTextOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
+} from '@ant-design/icons';
 import { db, type QuestionBank } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import ImportModal from '../components/ImportModal';
+import LandingHero from '../components/LandingHero';
 import { useAuth } from '../contexts/AuthContext';
-import { APP_VERSION, CHANGELOG } from '../utils/changelog';
+import { EMPTY_LEARNING_STATUS, summarizeLatestLearningStatus, type LearningAnswerRecord, type LearningStatus } from '../utils/learningStatus';
 
 const { Title, Text } = Typography;
 
-interface CloudBank {
-  id: string;
-  name: string;
-  description: string;
-  question_count: number;
-  created_at: string;
-  created_by: string;
+const ImportModal = lazy(() => import('../components/ImportModal'));
+
+const C = {
+  untitled: '未命名题库', uploadFirst: '上传第一个题库', uploadBank: '上传题库',
+  bankWorkbench: '题库工作台', myBanks: '我的题库', questionCount: '题目数', bankCount: '题库数', totalQuestions: '总题数', practiceCount: '练习次数',
+  localBank: '本地题库', cloudBank: '云端共享题库', cached: '缓存', cloud: '云端', pending: '待审核', rejected: '已驳回',
+  importQuestions: '导入题目', startPractice: '开始刷题', delete: '删除', cacheLocal: '缓存到本地', deleteCache: '删除缓存', retry: '重试',
+  noBanks: '还没有题库', supports: '支持单选、多选、填空、判断和简答题', emptyHint: '上传后可离线刷题，也可同步到云端审核',
+  loginFirst: '请先登录后再上传题库', confirmDelete: '确定删除题库', deleteContent: '该题库下的所有题目和练习记录也会被删除，此操作不可恢复。', confirm: '确认删除', cancel: '取消', deleted: '已删除',
+  neverPracticed: '未练习', lastPractice: '上次练习', loadingCloud: '正在加载云端题库...', loadCloudFailed: '云端题库加载失败', uploadTime: '上传时间',
+  offlineNote: '离线缓存：当前云端不可用时，可继续使用已缓存题库刷题。', offlineUsable: '离线可刷', status: '状态', cachedDone: '已缓存', cachedToLocal: '已缓存到本地', cacheFailed: '缓存失败'
+};
+
+function friendlyBankName(raw: string): string {
+  if (!raw) return C.untitled;
+  const name = raw.replace(/^\d+[.、-]\s*/, '').replace(/粉煤热解装置/g, '').replace(/岗位标准题库[\d.]+/g, '').replace(/2026\.\d+/g, '').replace(/\.docx?$/i, '').trim();
+  return name || raw.replace(/\.docx?$/i, '').trim() || C.untitled;
 }
+
+function documentBankName(raw: string): string {
+  const name = raw
+    .replace(/\.docx?$/i, '')
+    .replace(/^\d+[.、-]\s*/, '')
+    .replace(/粉煤热解装置/g, '')
+    .replace(/岗位标准题库[\d.]*$/g, '岗位题库')
+    .replace(/2026\.\d+$/g, '')
+    .trim();
+  const base = name || friendlyBankName(raw);
+  return /\.docx?$/i.test(base) ? base : base + '.docx';
+}
+
+interface CloudBank { id: string; name: string; description: string; question_count: number; created_at: string; created_by: string; review_status?: 'pending' | 'approved' | 'rejected'; }
+type BankLearningStatus = LearningStatus;
+type BankCardVariant = 'local' | 'cloud' | 'cached';
+
+const LAST_BANK_KEY = 'quiz-app-last-bank-path';
+const EMPTY_STATUS: BankLearningStatus = EMPTY_LEARNING_STATUS;
 
 export default function Home() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [importBankId, setImportBankId] = useState<number | undefined>(undefined);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [changelogOpen, setChangelogOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-
   const [cloudBanks, setCloudBanks] = useState<CloudBank[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudError, setCloudError] = useState(false);
+  const [cloudLearningStats, setCloudLearningStats] = useState<Record<string, BankLearningStatus>>({});
+  const [cloudLearningLoading, setCloudLearningLoading] = useState(false);
 
-  const banks = useLiveQuery(() => {
-    if (!user) return [];
-    return db.banks.where('userId').equals(user.id).toArray();
-  }, [user]);
-
-  // 本地列表中排除云端缓存的（description 以 ☁️ 开头）
-  const localBanks = useMemo(() =>
-    (banks || []).filter(b => !b.description?.startsWith('☁️')),
-    [banks],
+  const banks = useLiveQuery(() => { if (!user) return []; return db.banks.where('userId').equals(user.id).toArray(); }, [user?.id]);
+  const localBanks = useMemo(() => (banks || []).filter(b => !b.description?.startsWith('☁️')), [banks]);
+  const cachedCloudBanks: QuestionBank[] = useMemo(() => (banks || []).filter(b => b.description?.startsWith('☁️ ')), [banks]);
+  const questionCounts = useLiveQuery(() => db.questions.toArray().then((qs) => { const counts: Record<number, number> = {}; for (const q of qs) counts[q.bankId] = (counts[q.bankId] || 0) + 1; return counts; }));
+  const totalSessions = useLiveQuery(() => user ? db.sessions.where('userId').equals(user.id).count() : Promise.resolve(0), [user?.id]);
+  const localQuestionTotal = useMemo(
+    () => localBanks.reduce((sum, bank) => sum + (bank.id ? (questionCounts?.[bank.id] || 0) : 0), 0),
+    [localBanks, questionCounts],
   );
-
-  const questionCounts = useLiveQuery(
-    () =>
-      db.questions
-        .toArray()
-        .then((qs) => {
-          const counts: Record<number, number> = {};
-          for (const q of qs) {
-            counts[q.bankId] = (counts[q.bankId] || 0) + 1;
-          }
-          return counts;
-        }),
+  const cloudQuestionTotal = useMemo(
+    () => cloudBanks.reduce((sum, bank) => sum + (bank.question_count || 0), 0),
+    [cloudBanks],
   );
+  const cachedQuestionTotal = useMemo(
+    () => cachedCloudBanks.reduce((sum, bank) => sum + (bank.id ? (questionCounts?.[bank.id] || 0) : 0), 0),
+    [cachedCloudBanks, questionCounts],
+  );
+  const totalQuestions = localQuestionTotal + (cloudBanks.length > 0 ? cloudQuestionTotal : cachedQuestionTotal);
 
-  const totalSessions = useLiveQuery(() => db.sessions.count());
-  const totalQuestions = useMemo(() => {
-    if (!questionCounts) return 0;
-    return Object.values(questionCounts).reduce((a, b) => a + b, 0);
-  }, [questionCounts]);
-  const totalPracticeCount = totalSessions ?? 0;
+  const bankLearningStats = useLiveQuery(async () => {
+    if (!user || !banks?.length) return {} as Record<number, BankLearningStatus>;
+    const bankIds = new Set((banks || []).map(bank => bank.id).filter(Boolean) as number[]);
+    const result: Record<number, BankLearningStatus> = {};
+    const questionBankMap = new Map<number, number>();
 
-  // 从 Supabase 拉取可见的云端题库
-  useEffect(() => {
-    if (!user) {
-      setCloudBanks([]);
-      return;
+    for (const bankId of bankIds) {
+      result[bankId] = { ...EMPTY_STATUS };
     }
-    import('../lib/uploadService').then(({ fetchVisibleBanks }) => {
-      fetchVisibleBanks(user.id).then(setCloudBanks).catch(() => {
-        // 离线时 Supabase 拉取失败，不置空而是保留上次数据
+
+    const questions = await db.questions.toArray();
+    for (const question of questions) {
+      if (!bankIds.has(question.bankId)) continue;
+      if (question.id != null) questionBankMap.set(question.id, question.bankId);
+    }
+
+    const answers = await db.sessionAnswers.where('userId').equals(user.id).toArray();
+    const recordsByBank = new Map<number, LearningAnswerRecord[]>();
+    for (const answer of answers) {
+      const bankId = questionBankMap.get(answer.questionId);
+      if (bankId == null) continue;
+      const records = recordsByBank.get(bankId) || [];
+      records.push({
+        id: answer.id,
+        questionId: answer.questionId,
+        isCorrect: answer.isCorrect,
       });
+      recordsByBank.set(bankId, records);
+    }
+
+    for (const [bankId, records] of recordsByBank) {
+      result[bankId] = summarizeLatestLearningStatus(records);
+    }
+
+    return result;
+  }, [user?.id, banks]);
+
+  const wrongBankPath = useLiveQuery(async () => {
+    if (!user || !banks?.length) return '';
+    const questions = await db.questions.toArray();
+    const questionBankMap = new Map<number, number>();
+    for (const q of questions) {
+      if (q.id != null) questionBankMap.set(q.id, q.bankId);
+    }
+
+    const answers = await db.sessionAnswers.where('userId').equals(user.id).toArray();
+    const latestByQuestion = new Map<number, typeof answers[number]>();
+    for (const answer of answers) {
+      const previous = latestByQuestion.get(answer.questionId);
+      if (!previous || (answer.id ?? 0) > (previous.id ?? 0)) {
+        latestByQuestion.set(answer.questionId, answer);
+      }
+    }
+
+    const wrongBankIds = new Set<number>();
+    for (const answer of latestByQuestion.values()) {
+      if (answer.isCorrect) continue;
+      const answerBankId = questionBankMap.get(answer.questionId);
+      if (answerBankId != null) wrongBankIds.add(answerBankId);
+    }
+    if (wrongBankIds.size === 0) return '';
+
+    const orderedBanks = [...banks].sort((a, b) => {
+      const aTime = new Date(a.lastPracticed || a.createdAt).getTime();
+      const bTime = new Date(b.lastPracticed || b.createdAt).getTime();
+      return bTime - aTime;
     });
-  }, [user]);
+    const target = orderedBanks.find(bank => bank.id != null && wrongBankIds.has(bank.id));
+    return target?.id ? '/bank/' + target.id : '';
+  }, [user?.id, banks]);
 
-  // 离线时从 Dexie 加载缓存的云题库
-  const cachedCloudBanks: QuestionBank[] = useMemo(() =>
-    (banks || []).filter(b => b.description?.startsWith('☁️ ')),
-    [banks],
-  );
+  const fetchCloudBanks = useCallback(async (uid: string) => {
+    setCloudLoading(true); setCloudError(false);
+    try {
+      const { fetchVisibleBanks } = await import('../lib/uploadService');
+      const result = await Promise.race([fetchVisibleBanks(uid), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))]);
+      setCloudBanks(result);
+    } catch { setCloudError(true); }
+    finally { setCloudLoading(false); }
+  }, []);
 
-  // 检查上传权限
-  const handleOpenImportModal = (bankId?: number) => {
-    if (!user) {
-      message.warning('请先登录后再导入题目');
+  useEffect(() => { if (!user) { setCloudBanks([]); return; } fetchCloudBanks(user.id); }, [user, fetchCloudBanks]);
+
+  useEffect(() => {
+    if (!user || cloudBanks.length === 0) {
+      setCloudLearningStats({});
+      setCloudLearningLoading(false);
       return;
     }
-    if (bankId !== undefined) {
-      setImportBankId(bankId);
-      setImportModalOpen(true);
-    } else {
-      setImportBankId(undefined);
-      // 触发全局导入：在 ImportModal 中选择题库
-      setImportModalOpen(true);
+
+    let cancelled = false;
+    setCloudLearningLoading(true);
+
+    import('../lib/syncService')
+      .then(({ fetchBankProgress }) => Promise.all(cloudBanks.map(async (bank) => {
+        try {
+          const progress = await fetchBankProgress(user.id, bank.id);
+          const status = summarizeLatestLearningStatus(
+            Array.from(progress.entries()).map(([questionId, record]) => ({
+              questionId,
+              isCorrect: record.isCorrect,
+            })),
+          );
+          return [bank.id, status] as const;
+        } catch {
+          return [bank.id, { ...EMPTY_STATUS }] as const;
+        }
+      })))
+      .then((entries) => {
+        if (!cancelled) setCloudLearningStats(Object.fromEntries(entries));
+      })
+      .finally(() => {
+        if (!cancelled) setCloudLearningLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, cloudBanks]);
+
+  const handleOpenImportModal = (bankId?: number) => {
+    if (!user) { message.warning(C.loginFirst); return; }
+    setImportBankId(bankId);
+    setImportModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.set('modal', 'import');
+    setSearchParams(next);
+  };
+
+  const closeImportModal = () => {
+    setImportModalOpen(false);
+    setImportBankId(undefined);
+    if (searchParams.get('modal') === 'import') {
+      const next = new URLSearchParams(searchParams);
+      next.delete('modal');
+      setSearchParams(next, { replace: true });
     }
   };
 
+  useEffect(() => {
+    if (searchParams.get('modal') === 'import') {
+      setImportModalOpen(true);
+      return;
+    }
+    if (importModalOpen || importBankId !== undefined) {
+      setImportModalOpen(false);
+      setImportBankId(undefined);
+    }
+  }, [searchParams, importModalOpen, importBankId]);
+
   const handleDeleteBank = (bank: QuestionBank) => {
     Modal.confirm({
-      title: `确定删除题库「${bank.name}」？`,
-      content: '该题库下的所有题目和练习记录也将被永久删除，此操作不可恢复。',
-      okText: '确认删除',
+      title: C.confirmDelete + '：' + friendlyBankName(bank.name),
+      content: C.deleteContent,
+      okText: C.confirm,
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: C.cancel,
       onOk: async () => {
         const id = bank.id!;
         await db.questions.where('bankId').equals(id).delete();
         await db.sessions.where('bankId').equals(id).delete();
         await db.banks.delete(id);
-        message.success(`题库「${bank.name}」已删除`);
-      },
+        message.success(friendlyBankName(bank.name) + ' ' + C.deleted);
+      }
     });
   };
 
-  const formatDate = (d?: Date) => {
-    if (!d) return '未练习';
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d instanceof Date ? d : new Date(d));
+  const formatDate = (d?: Date) => !d ? C.neverPracticed : new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d instanceof Date ? d : new Date(d));
+
+  const getRecentBankPath = () => {
+    try {
+      const stored = localStorage.getItem(LAST_BANK_KEY);
+      if (stored?.startsWith('/bank/')) return stored;
+    } catch { /* ignore */ }
+    const firstLocal = localBanks[0]?.id ? '/bank/' + localBanks[0].id : '';
+    const firstCloud = cloudBanks[0]?.id ? '/bank/' + cloudBanks[0].id : '';
+    const firstCached = cachedCloudBanks[0]?.description?.startsWith('☁️ ') ? '/bank/' + cachedCloudBanks[0].description.replace('☁️ ', '') : '';
+    return firstLocal || firstCloud || firstCached || '';
   };
 
-  const handleCloudBankPractice = (bank: CloudBank) => {
-    navigate(`/practice/${bank.id}`, { state: { type: 'all', isCloud: true } });
+  const openRecentBank = () => {
+    const path = getRecentBankPath();
+    if (path) navigate(path);
+    else document.getElementById('bank-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const handleCloudBankDetail = (bank: CloudBank) => {
-    navigate(`/bank/${bank.id}`);
+  const openRecentFeature = (feature: 'photo' | 'wrong') => {
+    if (feature === 'wrong') {
+      if (wrongBankPath === undefined) {
+        message.loading('正在检查错题', 0.8);
+        return;
+      }
+      if (wrongBankPath) {
+        navigate(wrongBankPath + '?wrong=1');
+        return;
+      }
+      const recentPath = getRecentBankPath();
+      const recentBankId = recentPath.replace('/bank/', '');
+      const isCloudRecent = recentPath ? Number.isNaN(Number(recentBankId)) : false;
+      if (isCloudRecent) {
+        navigate(recentPath + '?wrong=1');
+        return;
+      }
+      message.info('暂无需复习题目');
+      return;
+    }
+
+    const path = getRecentBankPath();
+    if (!path) {
+      message.info('请先上传或选择一个题库');
+      return;
+    }
+    navigate(path + '?' + feature + '=1');
+  };
+
+  const getLearningStatus = (bankId?: number) => bankId ? (bankLearningStats?.[bankId] || EMPTY_STATUS) : EMPTY_STATUS;
+
+  const renderDocumentPreview = (args: {
+    variant: BankCardVariant;
+    progress: number;
+    documentName: string;
+    source: string;
+    count: number;
+    status: BankLearningStatus;
+    statusLoading?: boolean;
+  }) => {
+    const statusLabel = args.statusLoading
+      ? '...'
+      : args.status.review > 0
+        ? '需复习 ' + args.status.review
+        : '已掌握 ' + args.status.mastered;
+    const progressWidth = args.progress > 0 ? Math.max(6, args.progress) : 0;
+
+    return (
+      <div className={'home-bank-document-body is-' + args.variant} aria-hidden="true">
+        <div className="home-bank-doc-head">
+          <span className="home-bank-doc-icon"><FileTextOutlined /></span>
+          <span className="home-bank-doc-name">{args.documentName}</span>
+        </div>
+        <div className="home-bank-doc-tags">
+          <span>{args.source}</span>
+          <span>{args.count} 题</span>
+          <span className={args.status.review > 0 ? 'has-review' : ''}>{statusLabel}</span>
+        </div>
+        <div className="home-bank-preview-progress"><span style={{ width: progressWidth + '%' }} /></div>
+      </div>
+    );
+  };
+
+  const renderBankCard = (args: {
+    key: string;
+    variant: BankCardVariant;
+    title: string;
+    description: string;
+    source: string;
+    count: number;
+    status: BankLearningStatus;
+    statusLoading?: boolean;
+    rawName?: string;
+    metaLabel: string;
+    metaValue: string;
+    extraTags?: React.ReactNode;
+    onOpen: () => void;
+    onPractice: () => void;
+    onSecondary?: () => void;
+    secondaryLabel?: string;
+    secondaryIcon?: React.ReactNode;
+    onDelete?: () => void;
+  }) => {
+    const status = args.statusLoading ? EMPTY_STATUS : args.status;
+    const progress = args.count > 0 ? Math.round((status.mastered / args.count) * 100) : 0;
+    const masteredText = args.statusLoading ? '...' : status.mastered;
+    const reviewText = args.statusLoading ? '...' : status.review;
+    return (
+      <Col key={args.key} xs={24} sm={12} md={8} lg={6}>
+        <Card hoverable className={'home-bank-card is-' + args.variant} onClick={args.onOpen}>
+          <div className="home-bank-card-inner">
+            {renderDocumentPreview({
+              variant: args.variant,
+              progress,
+              documentName: documentBankName(args.rawName || args.title),
+              source: args.source,
+              count: args.count,
+              status,
+              statusLoading: args.statusLoading,
+            })}
+            <div className="home-bank-title-wrap">
+              <Title level={4} className="home-bank-card-title">{args.title}</Title>
+              <Text className="home-bank-card-desc" type="secondary">{args.description}</Text>
+              {args.extraTags && <div className="home-bank-extra-tags">{args.extraTags}</div>}
+            </div>
+            <div className="home-bank-learning-row">
+              <span className="is-mastered"><CheckCircleOutlined /> 已掌握 {masteredText}</span>
+              <span className={!args.statusLoading && status.review > 0 ? 'is-review has-items' : 'is-review'}><ExclamationCircleOutlined /> 需复习 {reviewText}</span>
+            </div>
+            <div className="home-bank-meta-row">
+              <span>{args.metaLabel}</span>
+              <strong>{args.metaValue}</strong>
+            </div>
+            <div className="home-bank-card-actions">
+              <button type="button" className="home-bank-card-action is-primary" onClick={(event) => { event.stopPropagation(); args.onOpen(); }}>
+                进入
+              </button>
+              <button type="button" className="home-bank-card-action" onClick={(event) => { event.stopPropagation(); args.onPractice(); }}>
+                <RightCircleOutlined /> 刷题
+              </button>
+              {args.onSecondary && (
+                <button type="button" className="home-bank-card-action" onClick={(event) => { event.stopPropagation(); args.onSecondary?.(); }}>
+                  {args.secondaryIcon} {args.secondaryLabel}
+                </button>
+              )}
+              {args.onDelete && (
+                <button type="button" className="home-bank-card-icon-action" aria-label={C.delete} onClick={(event) => { event.stopPropagation(); args.onDelete?.(); }}>
+                  <DeleteOutlined />
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+      </Col>
+    );
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      {/* 迁移横幅已移除 — 新用户无遗留本地题库 */}
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>我的题库</Title>
-        <Space>
-          <Button type="primary" icon={<ImportOutlined />} size="large" onClick={() => handleOpenImportModal()}>
-            上传题库
-          </Button>
-        </Space>
-      </div>
-
-      {/* Loading state */}
-      {banks === undefined ? (
-        <div style={{ padding: '24px 0' }}>
-          <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 24 }} />
-          <Row gutter={[16, 16]}>
-            {[1, 2, 3].map(i => (
-              <Col key={i} xs={24} sm={12} md={8} lg={6}>
-                <Card><Skeleton active /></Card>
-              </Col>
-            ))}
-          </Row>
+    <div className="home-landing-page">
+      <LandingHero onUploadBank={() => handleOpenImportModal()} onEnterBank={openRecentBank} onPhotoSearch={() => openRecentFeature('photo')} onWrongPractice={() => openRecentFeature('wrong')} />
+      <section id="bank-section" className="home-bank-section">
+        <div className="home-bank-header">
+          <div>
+            <Text type="secondary" className="home-bank-eyebrow">{C.bankWorkbench}</Text>
+            <Title level={3} className="home-bank-title">{C.myBanks}</Title>
+          </div>
+          <Button type="primary" icon={<ImportOutlined />} size="large" onClick={() => handleOpenImportModal()}>{C.uploadBank}</Button>
         </div>
-      ) : (!banks || banks.length === 0) && cloudBanks.length === 0 ? (
-        <div style={{ marginTop: 80, textAlign: 'center' }}>
-          <Empty
-            image={<BookOutlined style={{ fontSize: 64, color: '#1677ff40' }} />}
-            description={
-              <div>
-                <Text strong style={{ fontSize: 16 }}>刷题 App</Text>
-                <br />
-                <Text type="secondary" style={{ fontSize: 14 }}>支持单选题 / 多选题 / 填空题 / 判断题 / 简答题</Text>
-                <br />
-                <Text type="secondary">离线可用</Text>
-              </div>
-            }
-            style={{ marginBottom: 24 }}
-          >
-            <Button type="primary" icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
-              上传第一个题库
-            </Button>
-          </Empty>
-        </div>
-      ) : (
-        <>
-        {/* 首页统计 */}
-        {(localBanks.length > 0) || cloudBanks.length > 0 ? (
-          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            <Col xs={8}>
-              <Card size="small">
-                <Statistic title="题库数" value={localBanks.length + cloudBanks.length} prefix={<BookOutlined />} valueStyle={{ fontSize: 20, color: '#1677ff' }} />
-              </Card>
-            </Col>
-            <Col xs={8}>
-              <Card size="small">
-                <Statistic title="本地题数" value={totalQuestions} prefix={<QuestionCircleOutlined />} valueStyle={{ fontSize: 20, color: '#52c41a' }} />
-              </Card>
-            </Col>
-            <Col xs={8}>
-              <Card size="small">
-                <Statistic title="练习次数" value={totalPracticeCount} prefix={<TrophyOutlined />} valueStyle={{ fontSize: 20, color: '#faad14' }} />
-              </Card>
-            </Col>
-          </Row>
-        ) : null}
-
-        <Row gutter={[16, 16]}>
-          {/* 本地题库 */}
-          {localBanks.map((bank: QuestionBank) => {
-            const count = questionCounts?.[bank.id!] || 0;
-            return (
-              <Col key={`local-${bank.id}`} xs={24} sm={12} md={8} lg={6}>
-                <Card
-                  hoverable
-                  actions={[
-                    <Tooltip title="导入题目" key="import">
-                      <ImportOutlined onClick={(e) => { e.stopPropagation(); handleOpenImportModal(bank.id); }} />
-                    </Tooltip>,
-                    <Tooltip title="开始刷题" key="practice">
-                      <RightCircleOutlined onClick={(e) => { e.stopPropagation(); navigate(`/practice/${bank.id}`); }} />
-                    </Tooltip>,
-                    <Tooltip title="删除" key="delete">
-                      <DeleteOutlined onClick={(e) => { e.stopPropagation(); handleDeleteBank(bank); }} />
-                    </Tooltip>,
-                  ]}
-                  onClick={() => navigate(`/bank/${bank.id}`)}
-                >
-                  <Card.Meta
-                    title={<Text strong ellipsis>{bank.name}</Text>}
-                    description={
-                      <>
-                        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-                          {bank.description || '暂无描述'}
-                        </Text>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <div style={{ flex: 1, textAlign: 'center' }}>
-                            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
-                            <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>{count}</div>
-                          </div>
-                          <div style={{ flex: 1, textAlign: 'center' }}>
-                            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>上次练习</div>
-                            <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>{formatDate(bank.lastPracticed)}</div>
-                          </div>
-                        </div>
-                      </>
-                    }
-                  />
-                </Card>
-              </Col>
-            );
-          })}
-
-          {/* 云端题库 */}
-          {cloudBanks.map((bank: CloudBank) => (
-            <Col key={`cloud-${bank.id}`} xs={24} sm={12} md={8} lg={6}>
-              <Card
-                hoverable
-                style={{ borderColor: '#69b1ff', borderWidth: 2 }}
-                actions={[
-                  <Tooltip title="缓存到本地" key="cache">
-                    <CloudOutlined onClick={(e) => {
-                      e.stopPropagation();
-                      handleCacheCloudBank(bank, user.id);
-                    }} />
-                  </Tooltip>,
-                  <Tooltip title="开始刷题" key="practice">
-                    <RightCircleOutlined onClick={(e) => { e.stopPropagation(); handleCloudBankPractice(bank); }} />
-                  </Tooltip>,
-                ]}
-                onClick={() => handleCloudBankDetail(bank)}
-              >
-                <Card.Meta
-                  title={
-                    <Space>
-                      <Tag color="blue" style={{ marginRight: 4, lineHeight: '18px', fontSize: 11 }}>☁️</Tag>
-                      <Text strong ellipsis>{bank.name}</Text>
-                    </Space>
-                  }
-                  description={
-                    <>
-                      <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-                        {bank.description || '云端题库'}
-                      </Text>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, textAlign: 'center' }}>
-                          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
-                          <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>{bank.question_count}</div>
-                        </div>
-                        <div style={{ flex: 1, textAlign: 'center' }}>
-                          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>云端</div>
-                          <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>
-                            {new Date(bank.created_at).toLocaleDateString('zh-CN')}
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  }
-                />
-              </Card>
-            </Col>
-          ))}
-
-          {/* 离线缓存的云题库（云端不可用时展示） */}
-          {cloudBanks.length === 0 && cachedCloudBanks.length > 0 && (
-            <>
-              <Col span={24}>
-                <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8, marginTop: 8 }}>
-                  📡 离线缓存（点击刷题将使用本地数据）
-                </Text>
-              </Col>
-              {cachedCloudBanks.map((bank: QuestionBank) => {
+      </section>
+      <div className="home-bank-content">
+        {banks === undefined ? (
+          <div style={{ padding: '24px 0' }}>
+            <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 24 }} />
+            <Row gutter={[16, 16]}>{[1, 2, 3].map(i => <Col key={i} xs={24} sm={12} md={8} lg={6}><Card><Skeleton active /></Card></Col>)}</Row>
+          </div>
+        ) : (!banks || banks.length === 0) && cloudBanks.length === 0 ? (
+          <div className="home-empty-state">
+            <Empty image={<BookOutlined style={{ fontSize: 64, color: 'var(--app-primary-soft)' }} />} description={<div><Text strong style={{ fontSize: 16 }}>{C.noBanks}</Text><br /><Text type="secondary" style={{ fontSize: 14 }}>{C.supports}</Text><br /><Text type="secondary">{C.emptyHint}</Text></div>}>
+              <Button type="primary" icon={<ImportOutlined />} onClick={() => handleOpenImportModal()}>{C.uploadFirst}</Button>
+            </Empty>
+          </div>
+        ) : (
+          <>
+            {(localBanks.length > 0 || cloudBanks.length > 0) && (
+              <Row gutter={[16, 16]} className="home-stat-row">
+                <Col xs={8}><Card size="small"><Statistic title={C.bankCount} value={localBanks.length + cloudBanks.length} prefix={<BookOutlined />} valueStyle={{ fontSize: 20 }} /></Card></Col>
+                <Col xs={8}><Card size="small"><Statistic title={C.totalQuestions} value={totalQuestions} prefix={<QuestionCircleOutlined />} valueStyle={{ fontSize: 20 }} /></Card></Col>
+                <Col xs={8}><Card size="small"><Statistic title={C.practiceCount} value={totalSessions ?? 0} prefix={<TrophyOutlined />} valueStyle={{ fontSize: 20 }} /></Card></Col>
+              </Row>
+            )}
+            <Row gutter={[16, 16]}>
+              {localBanks.map((bank: QuestionBank) => {
                 const count = questionCounts?.[bank.id!] || 0;
-                const cloudUuid = bank.description?.replace('☁️ ', '') || '';
-                return (
-                  <Col key={`cached-${bank.id}`} xs={24} sm={12} md={8} lg={6}>
-                    <Card
-                      hoverable
-                      style={{ borderColor: '#95de64', borderWidth: 2 }}
-                      actions={[
-                        <Tooltip title="开始刷题" key="practice">
-                          <RightCircleOutlined onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/practice/${cloudUuid}`, { state: { isCloud: true } });
-                          }} />
-                        </Tooltip>,
-                        <Tooltip title="删除缓存" key="delete">
-                          <DeleteOutlined style={{ color: '#ff4d4f' }} onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteBank(bank);
-                          }} />
-                        </Tooltip>,
-                      ]}
-                      onClick={() => navigate(`/bank/${cloudUuid}`)}
-                    >
-                      <Card.Meta
-                        title={
-                          <Space>
-                            <Tag color="green" style={{ marginRight: 4, lineHeight: '18px', fontSize: 11 }}>📡</Tag>
-                            <Text strong ellipsis>{bank.name}</Text>
-                          </Space>
-                        }
-                        description={
-                          <>
-                            <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-                              离线可刷
-                            </Text>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <div style={{ flex: 1, textAlign: 'center' }}>
-                                <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 2, lineHeight: '18px' }}>题目数</div>
-                                <div style={{ fontSize: 22, fontWeight: 700, color: '#52c41a', lineHeight: '28px' }}>{count}</div>
-                              </div>
-                            </div>
-                          </>
-                        }
-                      />
-                    </Card>
-                  </Col>
-                );
+                return renderBankCard({
+                  key: 'local-' + bank.id,
+                  variant: 'local',
+                  title: friendlyBankName(bank.name),
+                  rawName: bank.name,
+                  description: bank.description || C.localBank,
+                  source: C.localBank,
+                  count,
+                  status: getLearningStatus(bank.id),
+                  metaLabel: C.lastPractice,
+                  metaValue: formatDate(bank.lastPracticed),
+                  onOpen: () => navigate('/bank/' + bank.id),
+                  onPractice: () => navigate('/practice/' + bank.id),
+                  onSecondary: () => handleOpenImportModal(bank.id),
+                  secondaryLabel: '导入',
+                  secondaryIcon: <ImportOutlined />,
+                  onDelete: () => handleDeleteBank(bank),
+                });
               })}
-            </>
-          )}
-        </Row>
-        </>
-      )}
-
-      {/* Import Modal */}
-      <ImportModal
-        open={importModalOpen || importBankId !== undefined}
-        bankId={importBankId}
-        onClose={() => { setImportModalOpen(false); setImportBankId(undefined); }}
-      />
-
-      {/* 版本号 & 帮助 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '24px 0 8px', opacity: 0.5 }}>
-        <Text
-          type="secondary"
-          style={{ fontSize: 12, cursor: 'pointer' }}
-          onClick={() => setChangelogOpen(true)}
-        >
-          v{APP_VERSION}
-        </Text>
-        <Text
-          type="secondary"
-          style={{ fontSize: 12, cursor: 'pointer' }}
-          onClick={() => setHelpOpen(true)}
-        >
-          使用帮助
-        </Text>
-      </div>
-
-      <Modal
-        title={
-          <span>
-            <InfoCircleOutlined style={{ marginRight: 8 }} />
-            更新日志
-          </span>
-        }
-        open={changelogOpen}
-        onCancel={() => setChangelogOpen(false)}
-        footer={<Button onClick={() => setChangelogOpen(false)}>关闭</Button>}
-        width={560}
-      >
-        {CHANGELOG.map((entry) => (
-          <div key={entry.version} style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <Tag color="blue">v{entry.version}</Tag>
-              <Text type="secondary" style={{ fontSize: 12 }}>{entry.date}</Text>
-              <Text strong>{entry.title}</Text>
-            </div>
-            <List
-              size="small"
-              dataSource={entry.changes}
-              renderItem={(item) => (
-                <List.Item style={{ padding: '2px 0' }}>
-                  <Text style={{ fontSize: 13 }}>• {item}</Text>
-                </List.Item>
+              {cloudLoading && <Col span={24}><div className="home-cloud-status"><CloudOutlined /> {C.loadingCloud}</div></Col>}
+              {cloudError && !cloudLoading && <Col span={24}><div className="home-cloud-status home-cloud-error"><Text type="secondary" style={{ fontSize: 13 }}>{C.loadCloudFailed}</Text><Button size="small" onClick={() => user && fetchCloudBanks(user.id)}>{C.retry}</Button></div></Col>}
+              {cloudBanks.map((bank: CloudBank) => renderBankCard({
+                key: 'cloud-' + bank.id,
+                variant: 'cloud',
+                title: friendlyBankName(bank.name),
+                rawName: bank.name,
+                description: bank.description || C.cloudBank,
+                source: C.cloud,
+                count: bank.question_count,
+                status: cloudLearningStats[bank.id] || EMPTY_STATUS,
+                statusLoading: cloudLearningLoading && !cloudLearningStats[bank.id],
+                metaLabel: C.uploadTime,
+                metaValue: new Date(bank.created_at).toLocaleDateString('zh-CN'),
+                extraTags: <Space size={4}>{bank.review_status === 'pending' && <Tag color="orange">{C.pending}</Tag>}{bank.review_status === 'rejected' && <Tag color="red">{C.rejected}</Tag>}</Space>,
+                onOpen: () => navigate('/bank/' + bank.id),
+                onPractice: () => navigate('/practice/' + bank.id, { state: { type: 'all', isCloud: true } }),
+                onSecondary: () => handleCacheCloudBank(bank, user!.id),
+                secondaryLabel: '缓存',
+                secondaryIcon: <CloudOutlined />,
+              }))}
+              {cloudBanks.length === 0 && cachedCloudBanks.length > 0 && (
+                <>
+                  <Col span={24}><Text type="secondary" className="home-offline-note">{C.offlineNote}</Text></Col>
+                  {cachedCloudBanks.map((bank: QuestionBank) => {
+                    const count = questionCounts?.[bank.id!] || 0;
+                    const cloudUuid = bank.description?.replace('☁️ ', '') || '';
+                    return renderBankCard({
+                      key: 'cached-' + bank.id,
+                      variant: 'cached',
+                      title: friendlyBankName(bank.name),
+                      rawName: bank.name,
+                      description: C.offlineUsable,
+                      source: C.cached,
+                      count,
+                      status: getLearningStatus(bank.id),
+                      metaLabel: C.status,
+                      metaValue: C.cachedDone,
+                      onOpen: () => navigate('/bank/' + cloudUuid),
+                      onPractice: () => navigate('/practice/' + cloudUuid, { state: { isCloud: true } }),
+                      onDelete: () => handleDeleteBank(bank),
+                    });
+                  })}
+                </>
               )}
-            />
-          </div>
-        ))}
-      </Modal>
-
-      <Modal
-        title={<span><QuestionCircleOutlined style={{ marginRight: 8 }} />使用帮助</span>}
-        open={helpOpen}
-        onCancel={() => setHelpOpen(false)}
-        footer={<Button onClick={() => setHelpOpen(false)}>关闭</Button>}
-        width={520}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div>
-            <Tag color="blue" style={{ marginBottom: 4 }}>1</Tag>
-            <Text strong>题库管理</Text>
-            <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">上传：首页右上角「上传题库」导入文件，支持 .txt / .json / .csv / .docx / .md。</Text>
-              <br />
-              <Text type="secondary">云端新增自动缓存到本地（断网可刷）。离线缓存可删除 🗑️。</Text>
-              <br />
-              <Text type="secondary">卡片显示题目数、上次练习时间。蓝色边框 = 云端共享题库。</Text>
-            </div>
-          </div>
-          <div>
-            <Tag color="cyan" style={{ marginBottom: 4 }}>2</Tag>
-            <Text strong>题库详情 &amp; 练习</Text>
-            <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">
-                统计区展示各题型数量（含"无空填空题"）+ 成绩趋势折线图（本地/云端均支持）。
-              </Text>
-              <br />
-              <Text type="secondary">
-                「开始练习」一键开刷全部题型；齿轮图标 ⚙ 选特定题型 / 抽 N 题随机练习。
-              </Text>
-              <br />
-              <Text type="secondary">
-                题目列表可按题型筛选、关键词搜索、展开查看题目与答案。答对自动 1.5s 下一题。
-              </Text>
-            </div>
-          </div>
-          <div>
-            <Tag color="orange" style={{ marginBottom: 4 }}>3</Tag>
-            <Text strong>背题 &amp; 错题重刷</Text>
-            <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">
-                顶部「📖 背题」切换闪卡模式：显示答案 → 记住了 / 没记住。
-              </Text>
-              <br />
-              <Text type="secondary">
-                详情页顶部横幅红色「错题重刷」按钮，一键练习所有错题（随错随记）。
-              </Text>
-              <br />
-              <Text type="secondary">
-                支持左右滑动切换题目，离开自动保存进度（断点续刷）。
-              </Text>
-            </div>
-          </div>
-          <div>
-            <Tag color="gold" style={{ marginBottom: 4 }}>4</Tag>
-            <Text strong>云端 &amp; 多端同步</Text>
-            <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">上传文件后自动建库 → 同步到云端 ✅ → 管理员审核 → 全员可见。</Text>
-              <br />
-              <Text type="secondary">☁️ 云端题库可缓存到本地离线刷题。联网后进度自动回写（sendBeacon 兜底）。</Text>
-              <br />
-              <Text type="secondary">同一设备登录不同账号，本地数据互不干扰。</Text>
-            </div>
-          </div>
-        </div>
-      </Modal>
+            </Row>
+          </>
+        )}
+      </div>
+      {(importModalOpen || importBankId !== undefined) && (
+        <Suspense fallback={null}>
+          <ImportModal open={importModalOpen || importBankId !== undefined} bankId={importBankId} onClose={closeImportModal} />
+        </Suspense>
+      )}
     </div>
   );
 }
 
-// 辅助：缓存云端题库到本地
 async function handleCacheCloudBank(bank: CloudBank, userId: string) {
   try {
     const { syncCloudBankToLocal } = await import('../lib/uploadService');
     const added = await syncCloudBankToLocal(bank.id, bank.name, userId);
-    if (added > 0) {
-      message.success(`已缓存 ${added} 题到本地`);
-    } else {
-      message.info('该题库已缓存到本地');
-    }
+    if (added > 0) message.success('已缓存 ' + added + ' 题到本地');
+    else message.info(C.cachedToLocal);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '缓存失败';
+    const msg = err instanceof Error ? err.message : C.cacheFailed;
     message.error(msg);
   }
 }

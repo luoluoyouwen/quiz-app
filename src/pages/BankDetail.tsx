@@ -1,25 +1,43 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useState, useMemo, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Card, Row, Col, Table, Button, Modal, Input, InputNumber, Typography, Tag, Space, Statistic,
-  Radio, message, Empty, Popconfirm, Tabs, Skeleton,
+  Button, Card, Col, Row, Typography, Space, Tag, Table, Input, InputNumber,
+  Modal, Statistic, Radio, message, Empty, Tabs, Skeleton,
 } from 'antd';
 import {
-  DeleteOutlined, PlayCircleOutlined, InboxOutlined, ArrowLeftOutlined,
-  SearchOutlined, WarningFilled, SettingOutlined, CloudOutlined,
+  PlayCircleOutlined, SettingOutlined,
+  InboxOutlined, WarningFilled, SearchOutlined,
+  CameraOutlined, CloudOutlined,
 } from '@ant-design/icons';
 import { db, type Question, type QuestionType } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import ImportModal from '../components/ImportModal';
 import QuestionCard from '../components/QuestionCard';
 import { pickRandomQuestions } from '../utils/quiz/engine';
-import StatsChart from '../components/StatsChart';
 import { supabase } from '../lib/supabase';
 import { isCloudId } from '../lib/uploadService';
 import { fetchCloudSessions, type CloudSession } from '../lib/syncService';
 import { useAuth } from '../contexts/AuthContext';
+import { debug } from '../utils/debug';
 
 const { Title, Text } = Typography;
+
+const ImportModal = lazy(() => import('../components/ImportModal'));
+const PhotoSearch = lazy(() => import('../components/PhotoSearch'));
+const StatsChart = lazy(() => import('../components/StatsChart'));
+
+/** Extract friendly bank name from long DOCX-import names. Short admin-set names are kept as-is. */
+function friendlyBankName(raw: string): string {
+  // Only transform names matching the known long-form pattern
+  if (!/粉煤热解装置|标准题库\d|2026\.\d/.test(raw)) return raw;
+  let name = raw
+    .replace(/粉煤热解装置/g, '')
+    .replace(/标准题库[\d.]+/g, '')
+    .replace(/2026\.\d+/g, '')
+    .replace(/\.docx?$/i, '')
+    .trim();
+  if (!name.endsWith('题库')) name += '题库';
+  return name;
+}
 
 const typeLabels: Record<string, { label: string; color: string }> = {
   choice: { label: '选择题', color: 'blue' },
@@ -57,6 +75,7 @@ interface CloudBankInfo {
 export default function BankDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isCloud = id ? isCloudId(id) : false;
   const bankId = isCloud ? id! : String(Number(id));
   const { user } = useAuth();
@@ -66,7 +85,35 @@ export default function BankDetail() {
   const [practiceMode, setPracticeMode] = useState<FilterType>('all');
   const [randomCount, setRandomCount] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
+  const [photoSearchOpen, setPhotoSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const openModal = (modal: 'practice' | 'photo' | 'import') => {
+    if (modal === 'practice') setPracticeOpen(true);
+    if (modal === 'photo') setPhotoSearchOpen(true);
+    if (modal === 'import') setImportOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.set('modal', modal);
+    setSearchParams(next);
+  };
+
+  const closeModal = (modal?: 'practice' | 'photo' | 'import') => {
+    if (!modal || modal === 'practice') setPracticeOpen(false);
+    if (!modal || modal === 'photo') setPhotoSearchOpen(false);
+    if (!modal || modal === 'import') setImportOpen(false);
+    if (!modal || searchParams.get('modal') === modal) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('modal');
+      setSearchParams(next, { replace: true });
+    }
+  };
+
+  useEffect(() => {
+    const modal = searchParams.get('modal');
+    setPracticeOpen(modal === 'practice');
+    setPhotoSearchOpen(modal === 'photo');
+    setImportOpen(modal === 'import');
+  }, [searchParams]);
 
   // 云端数据
   const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(null);
@@ -79,9 +126,24 @@ export default function BankDetail() {
     [isCloud, bankId],
   );
   const sessions = useLiveQuery(
-    () => (isCloud ? Promise.resolve([] as any[]) : db.sessions.where('bankId').equals(Number(bankId)).reverse().toArray()) as Promise<any[]>,
-    [isCloud, bankId],
+    () => (isCloud ? Promise.resolve([] as any[]) : user ? db.sessions.where({ bankId: Number(bankId), userId: user.id }).reverse().toArray() : Promise.resolve([])) as Promise<any[]>,
+    [isCloud, bankId, user?.id],
   ) as any[];
+  // ── sessionAnswers for real-time stats — always load, cloud banks save locally too ──
+  const sessionAnswers = useLiveQuery(
+    async () => {
+      if (isCloud || !user) return [];
+      const bankSessions = await db.sessions
+        .where({ bankId: Number(bankId), userId: user.id })
+        .toArray();
+      const sessionIds = bankSessions
+        .map(session => session.id)
+        .filter((value): value is number => typeof value === 'number');
+      if (sessionIds.length === 0) return [];
+      return db.sessionAnswers.where('sessionId').anyOf(sessionIds).toArray();
+    },
+    [isCloud, bankId, user?.id],
+  ) as any[] | undefined;
   const localQuestions = useLiveQuery(
     () => isCloud ? ([] as Question[]) : db.questions.where('bankId').equals(Number(bankId)).toArray(),
     [isCloud, bankId],
@@ -99,6 +161,7 @@ export default function BankDetail() {
         answer: q.answer,
         answers: q.answers || undefined,
         explanation: q.explanation,
+        image: q.image_url || undefined,
       }));
     }
     return localQuestions || [];
@@ -137,9 +200,6 @@ export default function BankDetail() {
     });
   }, [isCloud, id, user, cloudQuestions, cloudBank]);
 
-  // 有效会话：本地题库走 Dexie，云端走 Supabase
-  const effectiveSessions = isCloud ? (cloudSessions as any[]) : (sessions || []);
-
   const displayQuestions = questions;
 
   const filteredQuestions = useMemo(() => {
@@ -159,53 +219,161 @@ export default function BankDetail() {
     return result;
   }, [displayQuestions, filterType, searchTerm]);
 
+  // ── Stats from sessionAnswers (real-time, even mid-session) ──
+  // sessionAnswers are saved to local Dexie for BOTH local and cloud banks
   const stats = useMemo(() => {
-    if (!effectiveSessions || effectiveSessions.length === 0) return null;
-    const total = effectiveSessions.reduce((s: any, sess: any) => s + sess.totalQuestions, 0);
-    const correct = effectiveSessions.reduce((s: any, sess: any) => s + sess.correctAnswers, 0);
-    const wrong = effectiveSessions.reduce((s: any, sess: any) => s + sess.wrongAnswers, 0);
+    if (!sessionAnswers || questions.length === 0) return null;
+    const qIdSet = new Set(questions.map(q => q.id!));
+    const relevant = sessionAnswers.filter((sa: any) => {
+      if (!qIdSet.has(sa.questionId)) return false;
+      if (user?.id && sa.userId && sa.userId !== user.id) return false;
+      return true;
+    });
+    if (relevant.length === 0) return null;
+    const correct = relevant.filter((sa: any) => sa.isCorrect).length;
+    const total = relevant.length;
+    const wrong = total - correct;
     const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
-    return { total, correct, wrong, accuracy };
-  }, [effectiveSessions]);
+    const sessionIds = new Set(relevant.map((sa: any) => sa.sessionId).filter(Boolean));
+    return { total, correct, wrong, accuracy, practiceCount: sessionIds.size };
+  }, [sessionAnswers, questions, user?.id]);
+
+  const learningState = useMemo(() => {
+    if (!sessionAnswers || questions.length === 0) return { mastered: 0, review: 0, answered: 0 };
+    const qIdSet = new Set(questions.map(q => q.id!));
+    const latestByQuestion = new Map<number, any>();
+    for (const answer of sessionAnswers) {
+      if (!qIdSet.has(answer.questionId)) continue;
+      if (user?.id && answer.userId && answer.userId !== user.id) continue;
+      const previous = latestByQuestion.get(answer.questionId);
+      if (!previous || (answer.id ?? 0) > (previous.id ?? 0)) latestByQuestion.set(answer.questionId, answer);
+    }
+    let mastered = 0;
+    let review = 0;
+    for (const answer of latestByQuestion.values()) {
+      if (answer.isCorrect) mastered += 1;
+      else review += 1;
+    }
+    return { mastered, review, answered: latestByQuestion.size };
+  }, [sessionAnswers, questions, user?.id]);
+
+  // ── Chart data from sessionAnswers per session (real-time) ──
+  const chartData = useMemo(() => {
+    if (isCloud) {
+      // Cloud sessions already have correct data from Supabase
+      return (cloudSessions || []).slice(0, 20).map((s: any) => ({
+        label: new Date(s.date || s.created_at).toLocaleDateString('zh-CN'),
+        score: s.score ?? (s.totalQuestions > 0 ? Math.round((s.correctAnswers / s.totalQuestions) * 100) : 0),
+        correct: s.correctAnswers ?? 0,
+        total: s.totalQuestions ?? 0,
+        date: new Date(s.date || s.created_at),
+      }));
+    }
+    // Local: compute per session from sessionAnswers
+    if (!sessionAnswers || !sessions) return [];
+    const saBySession = new Map<number, { correct: number; total: number }>();
+    for (const sa of sessionAnswers) {
+      if (sa.sessionId == null) continue;
+      const cur = saBySession.get(sa.sessionId) || { correct: 0, total: 0 };
+      cur.total++;
+      if (sa.isCorrect) cur.correct++;
+      saBySession.set(sa.sessionId, cur);
+    }
+    return sessions.slice(0, 20).map((s: any) => {
+      const agg = saBySession.get(s.id!) || { correct: 0, total: 0 };
+      const d = new Date(s.startedAt);
+      return {
+        label: `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`,
+        score: agg.total > 0 ? Math.round((agg.correct / agg.total) * 100) : 0,
+        correct: agg.correct,
+        total: agg.total,
+        date: d,
+      };
+    }).filter(d => d.total > 0).reverse();
+  }, [isCloud, sessionAnswers, sessions, cloudSessions]);
 
   // 云端题库的错误题目 ID（本地才有）
   const wrongQuestionIds = useLiveQuery(
     async () => {
-      if (isCloud) return [];
-      const bankQuestionIds = (await db.questions
-        .where('bankId').equals(Number(bankId))
-        .toArray()).map(q => q.id!);
-      if (bankQuestionIds.length === 0) return [];
-      const bankQIdSet = new Set(bankQuestionIds);
-      const allAnswers = await db.sessionAnswers
-        .filter(sa => bankQIdSet.has(sa.questionId))
+      if (isCloud || !user) return [];
+      const bankSessions = await db.sessions
+        .where({ bankId: Number(bankId), userId: user.id })
         .toArray();
-      const wrongIds = [...new Set(
-        allAnswers.filter(sa => !sa.isCorrect).map(sa => sa.questionId)
-      )];
-      return wrongIds;
-    }, [bankId]
+      const sessionIds = bankSessions
+        .map(session => session.id)
+        .filter((value): value is number => typeof value === 'number');
+      if (sessionIds.length === 0) return [];
+      const myAnswers = await db.sessionAnswers.where('sessionId').anyOf(sessionIds).toArray();
+      const latestByQuestion = new Map<number, typeof myAnswers[number]>();
+      for (const answer of myAnswers) {
+        const previous = latestByQuestion.get(answer.questionId);
+        if (!previous || (answer.id ?? 0) > (previous.id ?? 0)) {
+          latestByQuestion.set(answer.questionId, answer);
+        }
+      }
+      return [...latestByQuestion.values()]
+        .filter(answer => !answer.isCorrect)
+        .map(answer => answer.questionId);
+    }, [isCloud, bankId, user?.id]
   );
 
-  const handleDelete = async () => {
-    if (isCloud) {
-      message.warning('云端题库不支持在此删除');
+  // ── 云端错题本（带 localStorage 缓存）──
+  const [cloudWrongQuestions, setCloudWrongQuestions] = useState<any[]>([]);
+  const [cloudWrongCount, setCloudWrongCount] = useState(0);
+  const [cloudWrongLoading, setCloudWrongLoading] = useState(false);
+  const [cloudWrongReady, setCloudWrongReady] = useState(false);
+  const CACHE_KEY = id ? `cloudWrong_${id}` : '';
+
+  // 先读缓存，再异步刷新
+  useEffect(() => {
+    if (!isCloud || !id || !CACHE_KEY) {
+      setCloudWrongReady(!isCloud);
       return;
     }
-    const numId = Number(bankId);
-    await db.questions.where('bankId').equals(numId).delete();
-    await db.sessions.where('bankId').equals(numId).delete();
-    await db.banks.delete(numId);
-    message.success('题库已删除');
-    navigate('/');
-  };
+    if (cloudQuestions.length === 0) {
+      setCloudWrongReady(false);
+      return;
+    }
+    setCloudWrongReady(false);
+
+    // ① 读缓存
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const age = Date.now() - (parsed.ts || 0);
+        if (age < 5 * 60 * 1000 && Array.isArray(parsed.data)) {
+          setCloudWrongQuestions(parsed.data);
+          setCloudWrongCount(parsed.data.length);
+        }
+      }
+    } catch { /* 缓存损坏忽略 */ }
+
+    // ② 异步刷新
+    setCloudWrongLoading(true);
+    supabase.rpc('get_my_wrong_questions', { p_bank_id: id }).then(({ data, error }) => {
+        if (error) {
+          debug.warn('拉取云端错题失败:', error.message);
+          if (cloudWrongCount === 0) setCloudWrongCount(0);
+        } else {
+          const list = data || [];
+          setCloudWrongQuestions(list);
+          setCloudWrongCount(list.length);
+          // 写缓存
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: list, ts: Date.now() })); }
+          catch { /* 存储满忽略 */ }
+        }
+        setCloudWrongLoading(false);
+        setCloudWrongReady(true);
+      });
+  }, [isCloud, id, cloudQuestions]);
 
   const handleCardClick = (type: FilterType) => {
-    navigate(`/practice/${bankId}`, { state: { type, isCloud } });
+    navigate(`/practice/${bankId}?type=${type}`, { state: { type, isCloud } });
   };
 
   const handleStartPractice = () => {
-    setPracticeOpen(false);
+    closeModal('practice');
     setRandomCount(0);
 
     const filtered = practiceMode === 'all'
@@ -215,27 +383,70 @@ export default function BankDetail() {
     if (randomCount > 0 && randomCount < filtered.length) {
       const picked = pickRandomQuestions(filtered, randomCount);
       const ids = picked.map((q) => q.id).filter(Boolean) as number[];
-      navigate(`/practice/${bankId}`, { state: { type: practiceMode, questionIds: ids, isCloud } });
+      navigate(`/practice/${bankId}?type=${practiceMode}`, { state: { type: practiceMode, questionIds: ids, isCloud } });
     } else {
-      navigate(`/practice/${bankId}`, { state: { type: practiceMode, isCloud } });
+      navigate(`/practice/${bankId}?type=${practiceMode}`, { state: { type: practiceMode, isCloud } });
     }
   };
 
   const handleQuickStart = () => {
-    navigate(`/practice/${bankId}`, { state: { type: 'all', isCloud } });
+    navigate(`/practice/${bankId}?type=all`, { state: { type: 'all', isCloud } });
   };
 
-  // 云端错题刷题（仅对已缓存到本地的云端题库）
+  const storeReviewQueue = (ids: number[], cloud: boolean) => {
+    try {
+      sessionStorage.setItem(
+        `review_queue_${bankId}`,
+        JSON.stringify({ questionIds: ids, isCloud: cloud, ts: Date.now() }),
+      );
+    } catch {
+      // Session storage is only a reload fallback; navigation state is primary.
+    }
+  };
+
+  // 错题重刷
   const handleWrongPractice = () => {
     if (isCloud) {
-      // 云端题库的错题无法追踪（进度在本地），提示用户缓存到本地
-      message.info('云端题库的错题需先缓存到本地才能追踪。点击首页 ☁️ 图标缓存。');
+      // 将云端错题的 sort_order 转为合成负 ID
+      const synthIds = cloudWrongQuestions
+        .map((q: any) => -(q.sort_order))
+        .filter(Boolean) as number[];
+      if (synthIds.length === 0) {
+        message.info('暂无需复习题目');
+        return;
+      }
+      storeReviewQueue(synthIds, true);
+      navigate(`/practice/${bankId}?type=all&review=1`, {
+        state: { type: 'all', questionIds: synthIds, isCloud: true }
+      });
       return;
     }
-    navigate(`/practice/${bankId}`, {
-      state: { questionIds: wrongQuestionIds }
+    if (!wrongQuestionIds || wrongQuestionIds.length === 0) {
+      message.info('暂无需复习题目');
+      return;
+    }
+    storeReviewQueue(wrongQuestionIds, false);
+    navigate(`/practice/${bankId}?type=all&review=1`, {
+      state: { type: 'all', questionIds: wrongQuestionIds }
     });
   };
+
+  useEffect(() => {
+    if (searchParams.get('photo') !== '1') return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('photo');
+    next.set('modal', 'photo');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (searchParams.get('wrong') !== '1') return;
+    if (loading || (isCloud && (!cloudWrongReady || cloudWrongLoading))) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('wrong');
+    setSearchParams(next, { replace: true });
+    handleWrongPractice();
+  }, [searchParams, setSearchParams, loading, isCloud, cloudWrongReady, cloudWrongLoading, cloudWrongCount, wrongQuestionIds]);
 
   const tableColumns = [
     {
@@ -264,19 +475,27 @@ export default function BankDetail() {
     {
       title: '题目',
       dataIndex: 'content',
-      ellipsis: true,
+      width: 420,
+      render: (value: string) => (
+        <div className="question-table-cell question-table-content">{value}</div>
+      ),
     },
     {
       title: '答案',
       dataIndex: 'answer',
-      width: 100,
-      ellipsis: true,
+      width: 280,
+      render: (_: string, record: Question) => {
+        const value = record.answers && record.answers.length > 1
+          ? record.answers.map((answer, index) => `${index + 1}. ${answer}`).join('  ')
+          : record.answer;
+        return <div className="question-table-cell question-table-answer">{value}</div>;
+      },
     },
   ];
 
   if (loading) {
     return (
-      <div style={{ padding: 24 }}>
+      <div className="bank-detail-loading subpage-loading-card">
         <Skeleton active paragraph={{ rows: 1 }} style={{ marginBottom: 16 }} />
         <Row gutter={[16, 16]}>
           {[1, 2, 3].map(i => (
@@ -291,23 +510,20 @@ export default function BankDetail() {
 
   if (!bank) {
     return (
-      <div style={{ padding: 24 }}>
+      <div className="bank-detail-empty subpage-loading-card">
         <Empty description="题库不存在" />
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="quiz-app-page bank-detail-page bank-detail-workbench">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-        <div>
-          <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ padding: 0, marginBottom: 8 }}>
-            返回
-          </Button>
-          <Title level={3} style={{ margin: 0 }}>
+      <div className="bank-detail-header">
+        <div className="bank-detail-title-block">
+          <Title className="bank-detail-title" level={3} style={{ margin: 0 }}>
             {isCloud && <Tag color="blue" style={{ marginRight: 6 }}>☁️ 云端</Tag>}
-            {bank.name}
+            {friendlyBankName(bank.name)}
           </Title>
           {isCloud ? (
             <Text type="secondary">
@@ -317,134 +533,128 @@ export default function BankDetail() {
             bank.description && <Text type="secondary">{bank.description}</Text>
           )}
         </div>
-        <Space>
-          <Space.Compact>
-            <Button type="primary" icon={<PlayCircleOutlined />} size="large" onClick={handleQuickStart}>
-              开始刷题
-            </Button>
-            <Button type="primary" size="large" icon={<SettingOutlined />} onClick={() => setPracticeOpen(true)} />
-          </Space.Compact>
-          {!isCloud && (
-            <Popconfirm
-              title="确定删除此题库？"
-              description="所有题目和练习记录也将被删除"
-              onConfirm={handleDelete}
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-            >
-              <Button danger icon={<DeleteOutlined />}>删除</Button>
-            </Popconfirm>
-          )}
-        </Space>
+        <div className="bank-detail-actions">
+          <Button type="primary" icon={<PlayCircleOutlined />} size="large" onClick={handleQuickStart}>
+            开始刷题
+          </Button>
+          <Button className="bank-detail-icon-action" size="large" icon={<SettingOutlined />} onClick={() => openModal('practice')} aria-label="练习设置" />
+          <Button className="bank-detail-icon-action" size="large" icon={<CameraOutlined />} onClick={() => openModal('photo')} aria-label="拍照搜题" />
+        </div>
       </div>
 
       {/* Stats Overview */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+      <Row className="bank-detail-type-grid bank-detail-card-grid" gutter={[16, 16]}>
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('all')}>
-            <Statistic title="题目总数" value={displayQuestions?.length || 0} valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="题目总数" value={displayQuestions?.length || 0} valueStyle={{ color: 'var(--app-primary)' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('choice')}>
-            <Statistic title="选择题" value={displayQuestions?.filter((q) => q.type === 'choice').length || 0} valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="选择题" value={displayQuestions?.filter((q) => q.type === 'choice').length || 0} valueStyle={{ color: 'var(--app-primary)' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('multi')}>
-            <Statistic title="多选题" value={displayQuestions?.filter((q) => q.type === 'multi').length || 0} valueStyle={{ color: '#13c2c2' }} />
+            <Statistic title="多选题" value={displayQuestions?.filter((q) => q.type === 'multi').length || 0} valueStyle={{ color: 'var(--app-primary-hover)' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('fill')}>
-            <Statistic title="填空题" value={displayQuestions?.filter((q) => q.type === 'fill').length || 0} valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="填空题" value={displayQuestions?.filter((q) => q.type === 'fill').length || 0} valueStyle={{ color: 'var(--app-review)' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('judge')}>
-            <Statistic title="判断题" value={displayQuestions?.filter((q) => q.type === 'judge').length || 0} valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="判断题" value={displayQuestions?.filter((q) => q.type === 'judge').length || 0} valueStyle={{ color: 'var(--app-primary-hover)' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('essay')}>
-            <Statistic title="简答题" value={displayQuestions?.filter((q) => q.type === 'essay').length || 0} valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="简答题" value={displayQuestions?.filter((q) => q.type === 'essay').length || 0} valueStyle={{ color: 'var(--app-success)' }} />
           </Card>
         </Col>
+        {(displayQuestions?.filter((q) => q.type === 'nofill').length || 0) > 0 && (
         <Col xs={12} sm={6}>
           <Card size="small" hoverable style={{ cursor: 'pointer' }} onClick={() => handleCardClick('nofill')}>
-            <Statistic title="无空填空题" value={displayQuestions?.filter((q) => q.type === 'nofill').length || 0} valueStyle={{ color: '#faad14' }} />
+            <Statistic title="背记题" value={displayQuestions?.filter((q) => q.type === 'nofill').length || 0} valueStyle={{ color: '#8c8c8c' }} />
+          </Card>
+        </Col>
+        )}
+      </Row>
+
+      {/* Practice Stats — always visible, real-time from sessionAnswers */}
+      <Row className="bank-detail-practice-grid bank-detail-card-grid" gutter={[16, 16]}>
+        <Col xs={12} sm={4}>
+          <Card size="small">
+            <Statistic title="练习次数" value={stats?.practiceCount || 0} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={5}>
+          <Card size="small">
+            <Statistic title="总答题数" value={stats?.total || 0} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={5}>
+          <Card size="small">
+            <Statistic title="正确数" value={stats?.correct || 0} valueStyle={{ color: 'var(--app-success)' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={5}>
+          <Card size="small">
+            <Statistic title="错误数" value={stats?.wrong || 0} valueStyle={{ color: 'var(--app-error)' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={4}>
+          <Card size="small" className="bank-detail-learning-stat is-mastered">
+            <Statistic title="已掌握" value={learningState.mastered} valueStyle={{ color: 'var(--app-success)' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={4}>
+          <Card size="small" className="bank-detail-learning-stat is-review">
+            <Statistic title="需复习" value={isCloud ? cloudWrongCount : learningState.review} valueStyle={{ color: '#d97706' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={5}>
+          <Card size="small">
+            <Statistic title="正确率" value={stats?.accuracy || 0} suffix="%" valueStyle={{ color: (stats?.accuracy || 0) >= 80 ? 'var(--app-success)' : (stats?.accuracy || 0) >= 50 ? 'var(--app-review)' : 'var(--app-error)' }} />
           </Card>
         </Col>
       </Row>
+      <Card className="bank-detail-chart-card" size="small" title="成绩趋势">
+        <Suspense fallback={<Skeleton active paragraph={{ rows: 3 }} title={false} />}>
+          <StatsChart data={chartData} />
+        </Suspense>
+      </Card>
 
-      {/* Practice Stats */}
-      {stats && (
-        <>
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-          <Col xs={12} sm={6}>
-            <Card size="small">
-              <Statistic title="练习次数" value={effectiveSessions?.length || 0} />
-            </Card>
-          </Col>
-          <Col xs={12} sm={6}>
-            <Card size="small">
-              <Statistic title="总答题数" value={stats.total} />
-            </Card>
-          </Col>
-          <Col xs={12} sm={6}>
-            <Card size="small">
-              <Statistic title="正确数" value={stats.correct} valueStyle={{ color: '#52c41a' }} />
-            </Card>
-          </Col>
-          <Col xs={12} sm={6}>
-            <Card size="small">
-              <Statistic title="正确率" value={stats.accuracy} suffix="%" valueStyle={{ color: stats.accuracy >= 80 ? '#52c41a' : stats.accuracy >= 50 ? '#faad14' : '#ff4d4f' }} />
-            </Card>
-          </Col>
-        </Row>
-        <Card size="small" title="成绩趋势" style={{ marginBottom: 24 }}>
-          <StatsChart sessions={effectiveSessions} />
-        </Card>
-        </>
-      )}
-
-      {/* 错题重刷 — 仅本地题库 */}
-      {!isCloud && wrongQuestionIds && wrongQuestionIds.length > 0 && (
-        <div style={{
-          background: 'var(--bg-warning)',
-          border: '1px solid #ffccc7',
-          borderRadius: 8,
-          padding: '12px 20px',
-          marginBottom: 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
+      {/* 复习队列 */}
+      {((!isCloud && wrongQuestionIds && wrongQuestionIds.length > 0) || (isCloud && cloudWrongCount > 0)) && (
+        <div className="bank-detail-wrong-banner">
           <div>
-            <Text strong style={{ color: '#cf1322', fontSize: 15 }}>
+            <Text className="bank-detail-wrong-title" strong>
               <WarningFilled style={{ marginRight: 8 }} />
-              你有 {wrongQuestionIds.length} 道错题待重刷
+              你有 {isCloud ? cloudWrongCount : wrongQuestionIds!.length} 道题需要再看一遍
             </Text>
-            <Text type="secondary" style={{ marginLeft: 12, fontSize: 13 }}>
-              点击按钮进入错题专属练习
+            <Text className="bank-detail-wrong-hint" type="secondary">
+              这些题来自最近一次“再看一遍”或答错记录
             </Text>
           </div>
           <Button
             type="primary"
-            danger
             size="large"
             icon={<PlayCircleOutlined />}
             onClick={handleWrongPractice}
-            style={{ fontWeight: 'bold', boxShadow: '0 2px 8px rgba(255,77,79,0.3)' }}
+            className="bank-detail-wrong-button"
+            loading={isCloud && cloudWrongLoading}
           >
-            错题重刷 ({wrongQuestionIds.length})
+            开始复习 ({isCloud ? cloudWrongCount : wrongQuestionIds!.length})
           </Button>
         </div>
       )}
 
       {/* Question List */}
       <Card
+        className="bank-detail-question-list-card"
         title={`题目列表 (${filteredQuestions.length})`}
         extra={
           <Space>
@@ -452,7 +662,7 @@ export default function BankDetail() {
               <Button icon={<CloudOutlined />} onClick={async () => {
                 try {
                   const { syncCloudBankToLocal } = await import('../lib/uploadService');
-                  const added = await syncCloudBankToLocal(id!, bank.name, user.id);
+                  const added = await syncCloudBankToLocal(id!, bank.name, user!.id);
                   if (added > 0) {
                     message.success(`已缓存 ${added} 题到本地`);
                   } else {
@@ -467,15 +677,15 @@ export default function BankDetail() {
               </Button>
             )}
             {!isCloud && (
-              <Button icon={<InboxOutlined />} onClick={() => setImportOpen(true)}>
+              <Button icon={<InboxOutlined />} onClick={() => openModal('import')}>
                 导入题目
               </Button>
             )}
           </Space>
         }
-        style={{ marginBottom: 24 }}
       >
         <Tabs
+          className="bank-detail-filter-tabs"
           activeKey={filterType}
           onChange={(key) => setFilterType(key as FilterType)}
           items={[
@@ -485,26 +695,29 @@ export default function BankDetail() {
             { key: 'fill', label: `填空题 (${displayQuestions?.filter((q) => q.type === 'fill').length || 0})` },
             { key: 'judge', label: `判断题 (${displayQuestions?.filter((q) => q.type === 'judge').length || 0})` },
             { key: 'essay', label: `简答题 (${displayQuestions?.filter((q) => q.type === 'essay').length || 0})` },
-            { key: 'nofill', label: `无空填空题 (${displayQuestions?.filter((q) => q.type === 'nofill').length || 0})` },
+            { key: 'nofill', label: `背记题 (${displayQuestions?.filter((q) => q.type === 'nofill').length || 0})` },
           ]}
-          style={{ marginBottom: 8 }}
         />
+        <div className="bank-detail-list-toolbar">
         <Input.Search
           placeholder="搜索题目内容、答案、选项..."
           allowClear
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           onSearch={(v) => setSearchTerm(v)}
-          style={{ marginBottom: 12, maxWidth: 400 }}
+          className="bank-detail-search"
           prefix={<SearchOutlined />}
         />
+        </div>
         {filteredQuestions.length > 0 ? (
           <Table
+            className="question-list-table"
             dataSource={filteredQuestions}
             columns={tableColumns}
             rowKey={(record) => String(record.id)}
             size="small"
-            pagination={{ pageSize: 15, showSizeChanger: false }}
+            scroll={{ x: 860 }}
+            pagination={{ pageSize: 15, showSizeChanger: false, position: ['bottomCenter'] }}
             expandable={{
               expandedRowRender: (record: Question) => (
                 <div style={{ padding: '8px 0' }}>
@@ -523,16 +736,16 @@ export default function BankDetail() {
       <Modal
         title="选择练习模式"
         open={practiceOpen}
-        onCancel={() => setPracticeOpen(false)}
+        onCancel={() => closeModal('practice')}
         onOk={handleStartPractice}
         okText="开始练习"
       >
-        <div style={{ padding: '16px 0' }}>
+        <div className="bank-detail-practice-modal-body">
           <Text strong>选择题目类型:</Text>
           <Radio.Group
             value={practiceMode}
             onChange={(e) => setPracticeMode(e.target.value)}
-            style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}
+            className="bank-detail-practice-mode-list"
           >
             <Radio value="all">
               <Space>
@@ -572,16 +785,16 @@ export default function BankDetail() {
             </Radio>
             <Radio value="nofill">
               <Space>
-                <Tag color="gold">无空填空题</Tag>
+                <Tag color="gold">背记题</Tag>
                 <Text type="secondary">{displayQuestions?.filter((q) => q.type === 'nofill').length || 0} 题</Text>
               </Space>
             </Radio>
           </Radio.Group>
 
           {/* 随机抽题 */}
-          <div style={{ marginTop: 20 }}>
+          <div className="bank-detail-random-block">
             <Text strong>随机抽题（可选）:</Text>
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="bank-detail-random-input-row">
               <InputNumber
                 min={0}
                 max={displayQuestions?.length || 0}
@@ -596,9 +809,22 @@ export default function BankDetail() {
         </div>
       </Modal>
 
+      {/* Photo Search */}
+      {photoSearchOpen && (
+        <Suspense fallback={null}>
+          <PhotoSearch
+            open={photoSearchOpen}
+            onClose={() => closeModal('photo')}
+            questions={displayQuestions}
+          />
+        </Suspense>
+      )}
+
       {/* Import Modal - only for local banks */}
-      {!isCloud && (
-        <ImportModal open={importOpen} bankId={Number(bankId)} onClose={() => setImportOpen(false)} />
+      {!isCloud && importOpen && (
+        <Suspense fallback={null}>
+          <ImportModal open={importOpen} bankId={Number(bankId)} onClose={() => closeModal('import')} />
+        </Suspense>
       )}
     </div>
   );

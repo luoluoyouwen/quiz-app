@@ -26,14 +26,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   headers.set('apikey', env.SUPABASE_PUBLISHABLE_KEY);
   headers.delete('cookie');
 
-  const body = ['GET', 'HEAD'].includes(request.method)
-    ? undefined
-    : await request.text();
-
+  // 不论 GET/POST 都要转发 body
   const proxyResponse = await fetch(targetUrl, {
     method: request.method,
     headers,
-    body,
+    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+    // 新版 CF Workers 需要 duplex 标志才能转发流式 body
+    ...(request.method !== 'GET' && request.method !== 'HEAD' ? { duplex: 'half' } : {}),
   });
 
   // 透传响应

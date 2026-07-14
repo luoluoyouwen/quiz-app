@@ -18,10 +18,12 @@ export async function uploadBankToSupabase(
   questions: QuestionInput[],
   contentHash: string,
   supabaseUserId: string,
+  isAdmin?: boolean,
 ): Promise<UploadResult> {
   const questionCount = questions.length;
 
-  // 1. 插入 question_banks（review_status = 'pending'，需管理员审核）
+  // 管理员上传直接 approved，普通用户需审核
+  const reviewStatus = isAdmin ? 'approved' : 'pending';
   const { data: bank, error: bankError } = await supabase
     .from('question_banks')
     .insert({
@@ -30,7 +32,7 @@ export async function uploadBankToSupabase(
       content_hash: contentHash,
       created_by: supabaseUserId,
       question_count: questionCount,
-      review_status: 'pending',
+      review_status: reviewStatus,
     })
     .select('id')
     .single();
@@ -47,18 +49,30 @@ export async function uploadBankToSupabase(
     answer: q.answer,
     answers: q.answers || null,
     explanation: q.explanation || '',
-    image_url: '',     // P4 处理图片上传
+    image_url: q.image || '',     // base64 data URI
     sort_order: i + 1,
   }));
 
   const BATCH_SIZE = 500;
-  for (let i = 0; i < questionRows.length; i += BATCH_SIZE) {
-    const batch = questionRows.slice(i, i + BATCH_SIZE);
-    const { error: questionsError } = await supabase
-      .from('questions')
-      .insert(batch);
+  try {
+    for (let i = 0; i < questionRows.length; i += BATCH_SIZE) {
+      const batch = questionRows.slice(i, i + BATCH_SIZE);
+      const { error: questionsError } = await supabase
+        .from('questions')
+        .insert(batch);
 
-    if (questionsError) throw new Error(`写入题目失败 (第 ${i + 1}~${i + batch.length} 题): ${questionsError.message}`);
+      if (questionsError) throw new Error(`写入题目失败 (第 ${i + 1}~${i + batch.length} 题): ${questionsError.message}`);
+    }
+  } catch (error) {
+    const { error: cleanupError } = await supabase
+      .from('question_banks')
+      .delete()
+      .eq('id', bank.id);
+    if (cleanupError) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`${reason}；清理未完成题库失败: ${cleanupError.message}`, { cause: error });
+    }
+    throw error;
   }
 
   return { bankId: bank.id, questionCount };
@@ -155,6 +169,7 @@ export async function syncCloudBankToLocal(
       answer: q.answer,
       answers: q.answers || undefined,
       explanation: q.explanation || undefined,
+      image: q.image_url || undefined,
       cloudId: q.id,  // 保留 Supabase 题目 UUID，用于离线进度回写
     }))
     .filter(q => !existingContents.has(q.content));

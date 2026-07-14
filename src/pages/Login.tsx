@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Card, Input, Button, Tabs, Typography, Alert, Space } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, CloudSyncOutlined, FileTextOutlined, CheckCircleOutlined, CameraOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import AppLogo from '../components/AppLogo';
 
 const { Text, Title } = Typography;
 
@@ -122,33 +123,41 @@ export default function Login() {
     }
   };
 
-  const bgColor = isDark ? '#141414' : '#f0f2f5';
-  const cardBg = isDark ? '#1f1f1f' : '#fff';
-
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: bgColor,
-        padding: 16,
-      }}
-    >
-      <Card
-        style={{
-          width: 400,
-          maxWidth: '100%',
-          background: cardBg,
-          borderRadius: 12,
-        }}
-        styles={{ body: { padding: '32px 24px' } }}
-      >
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <Title level={3} style={{ margin: 0, color: isDark ? '#e8e8e8' : undefined }}>
-            刷题 App
-          </Title>
+    <div className="auth-page" data-theme={isDark ? 'dark' : 'light'}>
+      <div className="auth-workbench" aria-hidden="true">
+        <div className="auth-workbench-glow" />
+        <div className="auth-doc-card auth-float-card">
+          <div className="auth-doc-head"><FileTextOutlined /> 岗位标准题库.docx</div>
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="auth-phone-shell">
+          <div className="auth-phone-top" />
+          <div className="auth-phone-card">
+            <Text className="auth-kicker">第 18 题</Text>
+            <strong>登录后继续同步刷题进度</strong>
+            <div className="auth-option-list">
+              <span>A. 云端题库</span>
+              <span>B. 错题重刷</span>
+              <span>C. 离线缓存</span>
+            </div>
+          </div>
+          <div className="auth-status-pill"><CheckCircleOutlined /> 已就绪</div>
+        </div>
+        <div className="auth-sync-card auth-float-card">
+          <CloudSyncOutlined /> 进度同步
+        </div>
+        <div className="auth-camera-card auth-float-card">
+          <CameraOutlined /> 拍照搜题
+        </div>
+      </div>
+
+      <Card className="auth-card" styles={{ body: { padding: 0 } }}>
+        <div className="auth-card-head">
+          <AppLogo className="auth-logo" markClassName="auth-logo-mark" />
+          <Title level={3}>刷题 App</Title>
           <Text type="secondary">登录以同步您的刷题进度</Text>
         </div>
 
@@ -164,7 +173,7 @@ export default function Login() {
               key: 'login',
               label: '登录',
               children: (
-                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                   <div>
                     <Input
                       prefix={<UserOutlined />}
@@ -208,7 +217,7 @@ export default function Login() {
               key: 'register',
               label: '注册',
               children: (
-                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                   <div>
                     <Input
                       prefix={<UserOutlined />}

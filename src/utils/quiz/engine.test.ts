@@ -435,7 +435,7 @@ describe('full integration - parse then check answers', () => {
 主风机C-301正常巡检内容包括（ABCD）
 A.振动、温度    B.润滑油/油位    C.喘振阀状态     D.电流与声音
 循环煤气压缩机 C-401 必须满足的启动条件（ABC）
-A.润滑油系统正常        B.密封气投用正常`);
+A.润滑油系统正常   B.密封气投用正常   C.冷却水投用正常`);
 
     expect(result.questions.length).toBe(2);
     expect(result.questions[0].type).toBe('multi');

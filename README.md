@@ -1,226 +1,219 @@
-# 刷题 App — Quiz App
+# 刷题 App / Quiz App
 
-> 纯前端离线刷题 PWA + Supabase 后端云端同步 · 化工行业题库专用 · 支持单选 / 多选 / 填空 / 判断 / 简答 · 自动挖空 · 深色模式 · AI 格式整理 · 账号系统 · 管理员后台
+当前版本：`5.0.0`
+发布状态：生产候选版，已完成预览环境核查，尚待生产发布确认。
 
----
+面向化工岗位题库的 React/Vite PWA。应用同时支持本地离线题库和经管理员审核的云端题库，覆盖题库导入、刷题、学习状态、错题复习、拍照搜题、统计、公告反馈及后台管理。
 
-## 功能一览
+- Preview、Production 地址及 Cloudflare Pages 项目标识由受控部署环境提供，不写入仓库。
+- 完整使用帮助：[docs/user-guide.md](docs/user-guide.md)
+- 生产发布清单：[docs/production-release-checklist.md](docs/production-release-checklist.md)
+- 开发文档：[docs/development-doc.md](docs/development-doc.md)
+- 交付文档：[docs/delivery-doc.md](docs/delivery-doc.md)
 
-| 功能 | 说明 |
-|------|------|
-| 🔐 **账号系统** | 工号+密码登录/注册（SMYH 格式），持久化 90 天免登录 |
-| 📂 **多题库管理** | 创建/删除题库，数据按 `bankId` 完全隔离 |
-| ☁️ **云端上传** | 登录后上传自动同步到 Supabase，全员共享 |
-| ✅ **题库审核** | 上传后标记 pending，管理员批准后全员可见 |
-| 📥 **五格式导入** | .txt · .json · .csv · .docx · .md |
-| 🔢 **六类题型** | 单选题、多选题、填空题、判断题、简答题、无空填空题 |
-| 🤖 **AI 格式整理** | DOCX 导入时自动 AI 规整排版；部署版通过 CF Pages Function 代理，API key 不暴露 |
-| ✏️ **自动挖空** | 填空题自动将答案替换为 `____`，支持 `、` 枚举多空 |
-| 🧠 **背题模式** | 显示答案 → 自评「记住了 / 没记住」 |
-| 🚀 **一键开刷** | 主按钮直接进全部题型练习，齿轮图标选特定题型/随机抽题 |
-| 📊 **统计图表** | 练习趋势折线图，最近 20 次正确率可视化（本地/云端均支持） |
-| 🔄 **云端进度同步** | 多端刷题进度实时同步，联网自动回写 |
-| 📴 **离线可用 + 在线兜底** | 已缓存的题库断网可刷，联网自动回写进度 |
-| 🔍 **题目搜索** | 实时搜索题目内容、答案、选项 |
-| ❌ **错题本** | 答错自动收集，支持错题重刷，随错随记 |
-| ⏯️ **断点续刷** | 按题型独立保存进度，离开后 24 小时内可继续 |
-| 📱 **左右滑动** | 右滑上一题、左滑下一题 |
-| 📋 **题目导航** | 网格视图，已答/未答/当前题分色标识 |
-| 🌙 **深色模式** | 右上角切换，持久化偏好 |
-| 🖼️ **DOCX 配图自动提取** | 导入 DOCX 时自动提取内嵌图片并展示 |
-| 🔄 **PWA 自动更新** | 检测新版本后提示刷新 |
-| 🛡️ **管理员后台** | 系统概览、题库审核（批准/驳回）、用户管理（角色/密码重置） |
-| 🗑️ **缓存可删除** | 离线缓存的云题库卡片可独立删除 |
-| 🔒 **多账号隔离** | 同一设备登录不同账号，本地缓存、练习记录互不干扰 |
-| 🛑 **错误兜底** | ErrorBoundary 全局捕获崩溃，白屏时显示错误信息+刷新按钮 |
+## 5.0.0 版本定位
 
----
+5.0.0 是面向正式生产的大版本收口，重点不只是视觉升级，还包括用户协作、数据一致性和安全边界。
 
-## 快速开始
+- 全站统一深灰蓝设计语言，覆盖首页、登录、加载、题库详情、刷题、统计、个人中心和后台。
+- 新增站内公告、用户反馈、管理员按账号回复、公告/反馈删除与回复撤回。
+- 统一桌面顶栏、移动端底部导航、栏目独立返回、弹窗返回关闭和滚动锁定。
+- 完善“已掌握 / 需复习”口径，按每题最新记录统计并提供需复习入口。
+- 修复本地多账号统计隔离、答题记录去重、会话计时和异步写入竞态。
+- 题库上传失败会回滚未完成题库，云端删除依赖数据库级联保证事务完整性。
+- 管理后台 API、AI 格式整理代理、Supabase RLS 和 SECURITY DEFINER RPC 完成权限加固。
+- 路由级分包、OCR 按需加载、PWA 更新策略和加载骨架完成生产化调整。
 
-### 本地开发
+## 功能概览
 
-```bash
-npm install            # 安装依赖
-npm run dev            # 本地开发（默认 http://localhost:5173）
-npm run build          # 构建生产版本
-npm run preview        # 预览构建产物
-```
-
-### 环境变量
-
-| 文件 | 用途 | 是否提交 |
-|------|------|----------|
-| `.env.local` | Supabase URL + publishable key | ❌ `.gitignore` |
-| `.env.normalize` | 本地开发 AI 格式整理的 DeepSeek API key | ❌ `.gitignore` |
-| `.env.normalize.example` | 模板文件（含占位符） | ✅ |
-| `.env.production` | 生产构建时指定 AI 代理路径 | ✅（不含 key） |
-| `.env.cf` | Cloudflare API token + Account ID | ❌ `.gitignore` |
-
-#### Supabase 配置（`.env.local`）
-
-```env
-VITE_SUPABASE_URL=[redacted-supabase-url]
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxx
-```
-
-### 部署
-
-```bash
-# 一键部署（需 CLOUDFLARE_API_TOKEN 在环境变量中）
-bash deploy-cf.sh
-
-# 或手动
-npm run build
-npx wrangler pages deploy dist/ --project-name=quiz-app
-```
-
-#### 部署后额外配置
-
-1. **AI 格式整理**：在 CF Pages 后台 → 设置 → 环境变量 → 添加 `AI_NORMALIZE_API_KEY`（Secret）
-2. **Supabase RLS**：上传 `supabase-migration-*.sql` 到 Supabase SQL Editor 执行
-3. **首个管理员**：注册第一个工号后，在 Supabase SQL Editor 执行 `UPDATE profiles SET role='admin' WHERE email='contact@example.invalid'`
-4. **密码重置 RPC**：执行 `CREATE FUNCTION admin_reset_password` SQL（详见 [docs/development-doc.md](./docs/development-doc.md) 第 16 章）
-
----
+| 模块 | 能力 |
+| --- | --- |
+| 账号与权限 | Supabase Auth；工号/邮箱登录；普通用户与管理员角色；前端守卫、Pages API 鉴权和数据库 RLS 三层约束。 |
+| 题库导入 | 支持 DOCX、TXT、JSON、CSV、Markdown；化工岗位 DOCX 可识别题型、下划线填空和题目配图。 |
+| 题库管理 | 本地题库、云端题库、审核状态、离线缓存、题型统计、搜索、改名和删除。 |
+| 刷题 | 单选、多选、填空、判断、简答、背记题；按题型、随机抽题、题号面板、断点续刷和键盘快捷键。 |
+| 学习状态 | 按每题最新记录汇总“已掌握 / 需复习”；答错或“再看一遍”进入复习队列。 |
+| 拍照搜题 | 浏览器端 PaddleOCR，支持识别文本编辑、相似题匹配和本地题库搜索。 |
+| 同步与离线 | Dexie/IndexedDB 本地持久化；云端进度同步；离页 beacon 兜底；已缓存题库可离线练习。 |
+| 公告反馈 | 公告一次提醒、公告中心、反馈提交、管理员回复、状态管理和受控删除。 |
+| 后台管理 | 系统概览、题库审核、用户管理、刷题统计、公告反馈、操作日志。 |
+| PWA | 可安装、Network First 页面策略、Service Worker 更新提示和安全自动更新。 |
+| 响应式界面 | 桌面顶栏、移动端底部导航、深色模式、安全区适配和弹窗背景锁定。 |
 
 ## 技术栈
 
-| 层 | 选型 |
-|----|------|
-| 框架 | React 19 + TypeScript |
-| 构建 | Vite + PWA 插件 (injectManifest) |
-| UI | Ant Design 6 |
-| 路由 | React Router 7 |
-| 离线存储 | Dexie (IndexedDB) |
-| **云端后端** | **Supabase (Singapore)** |
-| **Auth** | **Supabase Auth（邮箱/密码）** |
-| 后端代理 | Cloudflare Pages Functions |
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | React 19、TypeScript 6、Vite 8 |
+| UI | Ant Design 6、Lucide/Ant Design Icons、Framer Motion |
+| 路由 | React Router 7，页面级 lazy chunk |
+| 本地存储 | Dexie 4 / IndexedDB，当前 schema v6 |
+| 图表 | Recharts 3 |
+| 文件解析 | Mammoth、JSZip、OfficeParser、PapaParse |
+| OCR | PaddleOCR，按需加载 |
+| 后端 | Supabase Auth、PostgreSQL、RLS |
+| 服务端接口 | Cloudflare Pages Functions |
 | 部署 | Cloudflare Pages |
+| 测试 | Vitest、Testing Library、Playwright 浏览器回归 |
 
----
+## 架构摘要
 
-## 架构概览
-
-```
-┌──────────────────────────────────────────────────┐
-│                    浏览器 PWA                      │
-│  ┌────────────┐         ┌────────────────────┐   │
-│  │  Dexie     │  ←sync→ │  Supabase SDK      │   │
-│  │  (离线缓存)  │         │  (cloud api)        │   │
-│  └────────────┘         └─────────┬──────────┘   │
-│                                    │               │
-└────────────────────────────────────┼───────────────┘
-                                     │
-                          ┌──────────┴──────────┐
-                          │  CF Pages Functions  │
-                          │  ├─ /api/auth/*      │
-                          │  ├─ /api/rest/*      │
-                          │  ├─ /api/ai-normalize│
-                          │  └─ /api/admin/*     │
-                          └──────────┬──────────┘
-                                     │
-                          ┌──────────┴──────────┐
-                          │  Supabase (Singapore)│
-                          │  ├─ PostgreSQL        │
-                          │  ├─ Auth              │
-                          │  └─ Storage           │
-                          └─────────────────────┘
+```text
+Browser PWA
+├── React routes and UI
+├── Dexie / IndexedDB
+├── Service Worker
+└── Supabase client
+      │
+      ├── /api/auth/* and /api/rest/* -> Pages proxy -> Supabase
+      ├── /api/ai-normalize          -> authenticated AI proxy
+      ├── /api/progress-beacon       -> progress fallback
+      ├── /api/announcements         -> user announcements
+      ├── /api/feedback              -> user feedback
+      └── /api/admin/*               -> service-role admin operations
 ```
 
-**数据流：**
-- **上传**：用户上传 → Supabase（标记 pending）→ 缓存到本地 Dexie（`☁️ {uuid}`）
-- **刷题**：在线拉取云端进度 → 提交时批量写入 Supabase → 本地缓存
-- **离线**：已缓存的题库离线可刷 → 进度标记 pending → 联网自动回写
-- **审核**：管理员在后台批准/驳回 → 全员可见性变更
+浏览器只能持有 Supabase publishable key。服务角色密钥和 AI 密钥只能配置为 Cloudflare Pages Secret，不能写入前端变量、源码或文档。
 
----
+## 本地开发
 
-## 项目结构
+要求：
 
-```
-quiz-app/
-├── functions/                  # CF Pages Functions
-│   └── api/
-│       ├── [[catchall]].ts     # Supabase API 反向代理（auth/rest）
-│       ├── ai-normalize.ts     # AI 格式整理代理
-│       └── admin/
-│           └── reset-password.ts  # (已废弃) 密码重置代理
-├── public/                     # 静态资源 & PWA 图标
-├── src/
-│   ├── components/
-│   │   ├── AdminRoute.tsx      # 管理员路由守卫
-│   │   ├── ImportModal.tsx     # 文件导入弹窗
-│   │   ├── QuestionCard.tsx    # 题目展示卡片
-│   │   └── PwaUpdatePrompt.tsx # PWA 更新提示条
-│   ├── contexts/
-│   │   ├── AuthContext.tsx     # 登录状态 + profile 管理
-│   │   └── ThemeContext.tsx    # 深色模式状态管理
-│   ├── pages/
-│   │   ├── Home.tsx            # 首页：云端+本地题库列表
-│   │   ├── BankDetail.tsx      # 题库详情
-│   │   ├── Practice.tsx        # 练习页（核心刷题界面）
-│   │   ├── AdminDashboard.tsx  # 管理后台：概览/审核/用户管理
-│   │   └── Login.tsx           # 登录/注册页
-│   ├── hooks/
-│   │   └── useQuizSession.ts   # 刷题会话状态管理
-│   ├── lib/
-│   │   ├── supabase.ts         # Supabase 客户端（含 custom fetch 代理）
-│   │   ├── uploadService.ts    # 云端上传服务
-│   │   └── syncService.ts      # 进度同步服务
-│   ├── utils/
-│   │   ├── parsers/            # 5 种格式解析器 + DOCX 考试卷解析 + AI 格式化
-│   │   ├── quiz/               # 刷题引擎（判题/打乱/统计）
-│   │   ├── cloze/              # 自动挖空/智能生成填空题
-│   │   └── hash.ts             # SHA-256 内容哈希（云端去重）
-│   ├── db.ts                   # IndexedDB 数据模型（含 userProgress 表）
-│   ├── main.tsx                # 入口 + PWA 注册
-│   └── App.tsx                 # 路由 + 全局布局 + 自动同步注册
-├── sw-custom.js                # 自定义 Service Worker（NetworkFirst）
-├── docs/
-│   └── development-doc.md      # 完整开发文档
-├── supabase-migration-*.sql    # 数据库迁移脚本
-└── README.md
+- Node.js 24 或当前项目兼容的 LTS 版本
+- PowerShell 7
+- npm
+- 有效的 Supabase 开发环境变量
+
+```powershell
+npm install
+npm run dev
+npm test -- --run
+npm run lint
+npm run build
+npm run preview
 ```
 
----
+常用脚本：
 
-## 数据库（Supabase）
+| 命令 | 说明 |
+| --- | --- |
+| `npm run dev` | 启动 Vite 开发服务，默认 `http://localhost:5173`。 |
+| `npm test -- --run` | 运行单元、组件、解析器和 Pages Function 测试。 |
+| `npm run lint` | 运行完整 ESLint；当前生产门禁要求 0 errors。 |
+| `npm run build` | TypeScript 构建、Vite 生产构建和 PWA 注入。 |
+| `npm run security:check` | 使用服务角色执行基础数据健康检查，只能在可信环境运行。 |
 
-### 核心表
+## 环境变量
 
-| 表 | 说明 | 关键字段 |
-|-----|------|---------|
-| `profiles` | 用户扩展信息 | id, email, role (user/admin), created_at |
-| `question_banks` | 题库 | id, name, content_hash, review_status (pending/approved/rejected), created_by |
-| `questions` | 题目 | id, bank_id, type, content, options, answer |
-| `user_progress` | 刷题进度 | id, user_id, question_id, bank_id, is_correct |
+### 前端
 
-### RLS 策略
+| 变量 | 位置 | 说明 |
+| --- | --- | --- |
+| `VITE_SUPABASE_URL` | `.env.local` | Supabase 项目 URL。 |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | `.env.local` | 浏览器可用 publishable key。 |
+| `VITE_AI_NORMALIZE_PROXY` | `.env.production` | 生产环境应为 `/api/ai-normalize`。 |
 
-- `profiles`：用户只能看自己的行，admin 可看全部
-- `question_banks`：pending/rejected 仅上传者和 admin 可见，approved 全员可见
-- `user_progress`：用户只能读写自己的进度
+### Cloudflare Pages Secrets
 
----
+| 变量 | 说明 |
+| --- | --- |
+| `SUPABASE_URL` | Supabase 项目 URL。 |
+| `SUPABASE_PUBLISHABLE_KEY` | Pages 代理使用的 publishable key。 |
+| `SERVICE_ROLE_KEY` | 后台管理接口使用的服务角色密钥。 |
+| `AI_NORMALIZE_API_KEY` | AI 格式整理服务密钥。 |
 
-## AI 格式整理
+### 本机部署
 
-DOCX 导入时可选调 DeepSeek API 做格式归一化，解决 tab/全角空格/混排/OCR 残留导致的解析失败。
+| 文件 | 说明 |
+| --- | --- |
+| `.env.cf` | Cloudflare API Token，仅保存在本机并保持 gitignored。 |
+| `.env.normalize` | 本地 AI 调试密钥，仅保存在本机并保持 gitignored。 |
 
-### 双模式
+任何文档、日志和截图都不得包含 Token 或服务角色密钥。旧文档曾出现 Cloudflare Token，正式生产前必须轮换并更新 `.env.cf`。
 
-| 模式 | 适用场景 | 原理 |
-|------|----------|------|
-| **直接模式** | 本地开发 | 前端携带 `.env.normalize` 中的 API key 直接调 DeepSeek |
-| **代理模式** | 生产部署 | 前端请求 `/api/ai-normalize` → CF Pages Function 代理（key 在服务器环境变量中） |
+## 数据库迁移
 
-### 失败降级
+全新环境建议按顺序执行：
 
-AI 调用超时或失败时静默返回原文，不影响导入流程。
+1. `supabase/complete-migration.sql`
+2. `supabase/announcements-feedback.sql`
+3. `supabase/final-security-hardening.sql`
+4. `supabase/final-function-access.sql`
+5. `supabase/final-performance-hardening.sql`
 
----
+旧的 `fix-*.sql` 用于历史故障修复，不应替代最终加固脚本。生产执行 SQL 前必须备份，并先在事务或预览环境验证。
 
-## License
+## 部署
 
-MIT
+构建：
+
+```powershell
+npm test -- --run
+npm run build
+```
+
+部署预览：
+
+```powershell
+npx wrangler pages deploy dist --project-name $env:CLOUDFLARE_PAGES_PROJECT --branch preview
+```
+
+部署生产：
+
+```powershell
+npx wrangler pages deploy dist --project-name $env:CLOUDFLARE_PAGES_PROJECT --branch master
+```
+
+生产发布前必须完成 [生产发布清单](docs/production-release-checklist.md)。未经确认不要把预览候选直接推到 `master`。
+
+## 关键目录
+
+```text
+functions/api/                  Cloudflare Pages Functions
+  [[catchall]].ts               Supabase auth/rest 代理
+  ai-normalize.ts               鉴权后的 AI 格式整理代理
+  progress-beacon.ts            离页进度兜底
+  announcements.ts             用户公告 API
+  feedback.ts                  用户反馈 API
+  admin/                       管理员 API
+src/components/                 通用组件和消息中心
+src/pages/                      业务页面
+src/hooks/useQuizSession.ts     刷题会话状态与答题写入
+src/lib/                        上传、同步、Supabase 和消息中心客户端
+src/utils/parsers/              题库解析器
+src/utils/search/               拍照搜题匹配
+src/utils/learningStatus.ts     学习状态口径
+src/utils/changelog.ts          应用版本和应用内更新日志
+src/styles/                     主题和视觉契约测试
+supabase/                       数据库建表、功能与最终加固 SQL
+docs/                           使用、开发、交付和发布文档
+```
+
+## 当前质量基线
+
+5.0.0 生产候选当前完整核查结果：
+
+- TypeScript：通过。
+- ESLint：0 errors；存在 React 编译器迁移等非阻断 warnings。
+- Vitest：154 passed，4 skipped。
+- 生产构建：通过。
+- 生产依赖审计：0 vulnerabilities。
+- Playwright：桌面与 Pixel 7 关键流程通过，控制台 0 errors / 0 warnings。
+- 未授权后台、AI 和废弃密码重置接口分别返回预期的 401/401/404。
+
+测试数量会随新增测试变化，发布时以命令实际输出为准。
+
+## 已知限制
+
+- PaddleOCR 和导入器体积较大，已按需加载并排除 OCR 资产的 PWA 预缓存，首次拍照搜题仍可能受网络和设备性能影响。
+- Ant Design、导入器和 OCR chunk 会触发构建体积提示，不阻塞 5.0.0。
+- 大于 5000 题的本地题库仍建议引入虚拟列表或更细分页。
+- 题目图片目前主要以 data URI 存储，后续可迁移到 Supabase Storage 或 Cloudflare R2。
+- Supabase Auth 的泄露密码保护需要在 Dashboard 手动开启。
+
+## 文档维护约定
+
+- 发版时同时更新 `package.json`、`package-lock.json` 和 `src/utils/changelog.ts`。
+- 用户操作变化同时更新应用内帮助和 `docs/user-guide.md`。
+- 权限、数据库或 API 变化同时更新 `docs/development-doc.md` 与发布清单。
+- 部署完成后更新 `docs/status-and-issues.md`，记录生产部署 ID 和验证结果。

@@ -6,7 +6,6 @@ import { detectFormat } from '../utils/parsers';
 import type { QuestionInput } from '../utils/parsers';
 import { applyClozeToFillQuestions } from '../utils/cloze';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useColors } from '../utils/themeColors';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadBankToSupabase, checkHashExists, syncCloudBankToLocal, getBankByHash } from '../lib/uploadService';
 import { computeFileHash } from '../utils/hash';
@@ -23,7 +22,7 @@ interface ImportModalProps {
 }
 
 export default function ImportModal({ open, onClose, bankId }: ImportModalProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const isAppend = bankId !== undefined;
 
   const [parsed, setParsed] = useState<QuestionInput[]>([]);
@@ -35,7 +34,6 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
   const [isDocx, setIsDocx] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const parsedFileRef = useRef<File | null>(null);
-  const colors = useColors();
 
   // 追加模式：获取目标题库信息
   const targetBank = useLiveQuery(
@@ -169,8 +167,13 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
 
         // 上传到 Supabase
         const finalName = isAppend ? (targetBank?.name || '未命名') : bankName.trim();
-        const result = await uploadBankToSupabase(finalName, '', parsed, contentHash, user.id);
-        message.success(`已上传 ${parsed.length} 题到云端，等待管理员审核后全员可见`);
+        const isAdmin = profile?.role === 'admin';
+        const result = await uploadBankToSupabase(finalName, '', parsed, contentHash, user.id, isAdmin);
+        if (isAdmin) {
+          message.success(`已上传 ${parsed.length} 题到云端，全员可见`);
+        } else {
+          message.success(`已上传 ${parsed.length} 题到云端，等待管理员审核后全员可见`);
+        }
 
         // 同步缓存到本地（断网可刷）
         await syncCloudBankToLocal(result.bankId, finalName, user.id);
@@ -185,7 +188,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
       let localBankId = bankId;
       if (!isAppend) {
         localBankId = await db.banks.add({
-          userId: user.id,
+          userId: user!.id,
           name: bankName.trim(),
           description: '',
           createdAt: new Date(),
@@ -200,6 +203,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
         answer: q.answer,
         answers: q.answers,
         explanation: q.explanation,
+        image: q.image,
       }));
       await db.questions.bulkAdd(toAdd);
       message.success(`成功导入 ${toAdd.length} 题`);
@@ -274,6 +278,8 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
 
   return (
     <Modal
+
+      className="import-modal"
       title={isAppend ? `追加题目到「${targetBank?.name || '...'}」` : '上传题库'}
       open={open}
       onCancel={handleClose}
@@ -295,10 +301,9 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
     >
       {/* 新建模式：题库名称 */}
       {!isAppend && (
-        <div style={{ marginBottom: 16 }}>
+        <div className="import-bank-name">
           <Text strong>题库名称</Text>
           <Input
-            style={{ width: '100%', marginTop: 4 }}
             placeholder="输入题库名称，默认使用文件名"
             value={bankName}
             onChange={(e) => setBankName(e.target.value)}
@@ -317,7 +322,7 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
           }
           type="info"
           showIcon={false}
-          style={{ marginBottom: 12, fontSize: 13 }}
+          className="import-sync-alert"
         />
       )}
 
@@ -326,24 +331,14 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
           message="未登录，仅保存到本地题库。登录后可上传到云端共享"
           type="warning"
           showIcon
-          style={{ marginBottom: 12 }}
+          className="import-sync-alert"
         />
       )}
 
       {/* Upload area */}
       <div
+        className="import-dropzone"
         onClick={() => fileInputRef.current?.click()}
-        style={{
-          border: `2px dashed ${colors.border}`,
-          borderRadius: 8,
-          padding: '60px 20px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          backgroundColor: parsing ? colors.bgFill : colors.bgContainer,
-          transition: 'border-color 0.3s',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#1677ff'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#d9d9d9'; }}
       >
         <input
           ref={fileInputRef}
@@ -356,10 +351,10 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
           <Text type="secondary">{isDocx ? 'AI 格式整理中...' : '正在解析文件...'}</Text>
         ) : (
           <>
-            <InboxOutlined style={{ fontSize: 48, color: colors.textMuted, display: 'block', marginBottom: 8 }} />
+            <InboxOutlined className="import-dropzone-icon" />
             <Text>点击选择文件</Text>
             <br />
-            <Text type="secondary" style={{ fontSize: 13 }}>
+            <Text className="import-dropzone-hint" type="secondary">
               支持格式: .txt .json .csv .docx .md（单文件不超过 1MB）
             </Text>
           </>
@@ -367,9 +362,10 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
       </div>
 
       {fileName && (
-        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+        <Text className="import-file-name" type="secondary">
           {isDocx && <Tag color="green" style={{ marginRight: 4 }}>AI 导入</Tag>}
           已选择文件: {fileName}
+          {parsing && <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>解析中…</Text>}
         </Text>
       )}
 
@@ -378,13 +374,13 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
           message={parseError}
           type="error"
           showIcon
-          style={{ marginTop: 12 }}
+          className="import-error-alert"
           closable
           onClose={() => setParseError('')}
         />
       )}
 
-      <div style={{ marginTop: 16 }}>
+      <div className="import-preview">
         {parsed.length > 0 ? (
           <>
             <Text strong>预览 (共 {parsed.length} 题):</Text>
@@ -395,12 +391,11 @@ export default function ImportModal({ open, onClose, bankId }: ImportModalProps)
               size="small"
               pagination={false}
               scroll={{ y: 250 }}
-              style={{ marginTop: 8 }}
             />
           </>
         ) : (
-          <div style={{ textAlign: 'center', padding: 20, color: colors.textMuted }}>
-            <UploadOutlined style={{ fontSize: 24, display: 'block', marginBottom: 8 }} />
+          <div className="import-preview-empty">
+            <UploadOutlined className="import-preview-empty-icon" />
             <Text type="secondary">上传文件后预览</Text>
           </div>
         )}
