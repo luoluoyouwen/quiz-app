@@ -1,0 +1,10 @@
+title = "Quiz App secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "cloudflare-api-token"
+description = "Cloudflare API token"
+regex = '''\bcfat_[A-Za-z0-9_-]{20,}\b'''
+keywords = ["cfat_"]
