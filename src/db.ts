@@ -74,6 +74,15 @@ export interface SM2Record {
   lastReview: number;
 }
 
+export interface CloudBankCacheRecord {
+  key: string;
+  userId: string;
+  bankId: string;
+  data: unknown;
+  cachedAt: number;
+  validatedAt: number;
+}
+
 const db = new Dexie('QuizApp') as Dexie & {
   banks: EntityTable<QuestionBank, 'id'>;
   questions: EntityTable<Question, 'id'>;
@@ -81,6 +90,7 @@ const db = new Dexie('QuizApp') as Dexie & {
   sessionAnswers: EntityTable<SessionAnswer, 'id'>;
   userProgress: EntityTable<UserProgress, 'id'>;
   sm2Data: EntityTable<SM2Record, 'id'>;
+  cloudBankCache: EntityTable<CloudBankCacheRecord, 'key'>;
 };
 
 db.version(1).stores({
@@ -136,6 +146,16 @@ db.version(6).stores({
   const duplicateIds = findDuplicateSessionAnswerIds(answers);
 
   if (duplicateIds.length > 0) await table.bulkDelete(duplicateIds);
+});
+
+db.version(7).stores({
+  banks: '++id, userId, name, createdAt',
+  questions: '++id, bankId, type',
+  sessions: '++id, userId, bankId, startedAt',
+  sessionAnswers: '++id, userId, sessionId, questionId',
+  userProgress: '++id, userId, questionId, bankId, syncStatus',
+  sm2Data: '++id, key',
+  cloudBankCache: 'key, userId, bankId, cachedAt, validatedAt',
 });
 
 export { db };

@@ -15,6 +15,10 @@ import { checkAnswer } from '../utils/quiz/engine';
 import QuestionCard from '../components/QuestionCard';
 import QuestionImage from '../components/QuestionImage';
 import type { Question, QuestionType } from '../db';
+import {
+  getCachedCloudBankData, loadCloudBankData,
+  type CloudBankInfo, type CloudQuestionData,
+} from '../lib/cloudBankData';
 import { supabase } from '../lib/supabase';
 import { isCloudId, syncCloudBankToLocal } from '../lib/uploadService';
 import { submitPracticeProgress, fetchBankProgress, submitProgressBeacon } from '../lib/syncService';
@@ -87,25 +91,7 @@ function getQuestionTypeColor(type?: QuestionType): string {
 }
 
 /** Supabase 题目格式 */
-interface CloudQuestion {
-  id: string;
-  bank_id: string;
-  type: string;
-  content: string;
-  options: string[] | null;
-  answer: string;
-  answers: string[] | null;
-  explanation: string;
-  image_url: string;
-  sort_order: number;
-}
-
-interface CloudBankInfo {
-  id: string;
-  name: string;
-  description: string;
-  question_count: number;
-}
+type CloudQuestion = CloudQuestionData;
 
 /**
  * 将云端题目转换为本地 Question 格式，同时维护合成 ID → 真实 UUID 映射
@@ -152,11 +138,13 @@ export default function Practice() {
   const questionIds = locationState?.questionIds || storedReviewQuestionIds;
   const cloudFlag = locationState?.isCloud || isCloud;
   const isReviewSession = searchParams.get('review') === '1' || Boolean(questionIds?.length);
+  const { user } = useAuth();
 
   // ── 云端数据 ──
-  const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(null);
-  const [cloudQuestions, setCloudQuestions] = useState<CloudQuestion[]>([]);
-  const [cloudDataLoading, setCloudDataLoading] = useState(false);
+  const initialCloudData = cloudFlag && bankId ? getCachedCloudBankData(bankId, user?.id) : undefined;
+  const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(() => initialCloudData?.bank || null);
+  const [cloudQuestions, setCloudQuestions] = useState<CloudQuestion[]>(() => initialCloudData?.questions || []);
+  const [cloudDataLoading, setCloudDataLoading] = useState(() => cloudFlag && !initialCloudData);
 
   // 本地数据
   const localBank = useLiveQuery(
@@ -168,7 +156,6 @@ export default function Practice() {
     [cloudFlag, bankId],
   );
 
-  const { user } = useAuth();
 
   // 云端题目 ID 映射（合成 ID → 真实 Supabase UUID）
   const cloudQuestionIdMap = useRef<Map<number, string>>(new Map());
@@ -176,18 +163,20 @@ export default function Practice() {
   // 云端：拉取题库信息和题目（在线走 Supabase，离线走 Dexie 缓存）
   useEffect(() => {
     if (!cloudFlag || !bankId) return;
-    setCloudDataLoading(true);
+    const cached = getCachedCloudBankData(bankId, user?.id);
+    if (cached) {
+      setCloudBank(cached.bank);
+      setCloudQuestions(cached.questions);
+      setCloudDataLoading(false);
+      return;
+    }
 
-    Promise.all([
-      supabase.from('question_banks').select('id, name, description, question_count').eq('id', bankId).single(),
-      supabase.from('questions').select('*').eq('bank_id', bankId).order('sort_order', { ascending: true }),
-    ]).then(([bankResult, questionsResult]) => {
-      if (!bankResult.error && bankResult.data) {
-        setCloudBank(bankResult.data as CloudBankInfo);
-      }
-      if (!questionsResult.error && questionsResult.data) {
-        setCloudQuestions(questionsResult.data as CloudQuestion[]);
-      }
+    setCloudBank(null);
+    setCloudQuestions([]);
+    setCloudDataLoading(true);
+    loadCloudBankData(bankId, { userId: user?.id }).then(({ bank: nextBank, questions: nextQuestions }) => {
+      setCloudBank(nextBank);
+      setCloudQuestions(nextQuestions);
       setCloudDataLoading(false);
     }).catch(async () => {
       // 离线兜底：从 Dexie 缓存读取 ☁️ {bankId}
@@ -225,7 +214,7 @@ export default function Practice() {
       } catch { /* 兜底失败，无网络也无缓存 */ }
       setCloudDataLoading(false);
     });
-  }, [cloudFlag, bankId]);
+  }, [cloudFlag, bankId, user?.id]);
 
   // 决定最终的 bank 和 questions
   const bank = cloudFlag ? cloudBank : localBank;

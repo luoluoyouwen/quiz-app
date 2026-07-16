@@ -23,6 +23,7 @@ import { getBackTarget, getBankDetailPath, getPageTitle, getPrimaryTabKey } from
 import { cssVarsToString, getAppThemeTokens } from './styles/themeTokens';
 import { fetchAnnouncements, markAnnouncementRead, type Announcement } from './lib/messageCenter';
 import { installModalScrollLock } from './utils/modalScrollLock';
+import { loadBankDetailRoute, loadPracticeRoute } from './utils/routePreload';
 
 const { Content } = Layout;
 const { Text } = Typography;
@@ -68,8 +69,8 @@ function lazyWithChunkReload<T extends ComponentType<any>>(loader: () => Promise
 
 const Home = lazyWithChunkReload(() => import('./pages/Home'));
 const AdminDashboard = lazyWithChunkReload(() => import('./pages/AdminDashboard'));
-const BankDetail = lazyWithChunkReload(() => import('./pages/BankDetail'));
-const Practice = lazyWithChunkReload(() => import('./pages/Practice'));
+const BankDetail = lazyWithChunkReload(loadBankDetailRoute);
+const Practice = lazyWithChunkReload(loadPracticeRoute);
 const Stats = lazyWithChunkReload(() => import('./pages/Stats'));
 const Profile = lazyWithChunkReload(() => import('./pages/Profile'));
 const Login = lazyWithChunkReload(() => import('./pages/Login'));

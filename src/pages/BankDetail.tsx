@@ -13,11 +13,16 @@ import { db, type Question, type QuestionType } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import QuestionCard from '../components/QuestionCard';
 import { pickRandomQuestions } from '../utils/quiz/engine';
+import {
+  getCachedCloudBankData, loadCloudBankData,
+  type CloudBankInfo, type CloudQuestionData,
+} from '../lib/cloudBankData';
 import { supabase } from '../lib/supabase';
 import { isCloudId } from '../lib/uploadService';
 import { fetchCloudSessions, type CloudSession } from '../lib/syncService';
 import { useAuth } from '../contexts/AuthContext';
 import { debug } from '../utils/debug';
+import { preloadPracticeRoute } from '../utils/routePreload';
 
 const { Title, Text } = Typography;
 
@@ -49,28 +54,7 @@ const typeLabels: Record<string, { label: string; color: string }> = {
 
 type FilterType = 'all' | QuestionType;
 
-/** 云题目格式（Supabase 返回的 snake_case 映射） */
-interface CloudQuestion {
-  id: string;
-  bank_id: string;
-  type: QuestionType;
-  content: string;
-  options: string[] | null;
-  answer: string;
-  answers: string[] | null;
-  explanation: string;
-  image_url: string;
-  sort_order: number;
-}
-
-interface CloudBankInfo {
-  id: string;
-  name: string;
-  description: string;
-  question_count: number;
-  created_at: string;
-  created_by: string;
-}
+type CloudQuestion = CloudQuestionData;
 
 export default function BankDetail() {
   const { id } = useParams<{ id: string }>();
@@ -79,6 +63,10 @@ export default function BankDetail() {
   const isCloud = id ? isCloudId(id) : false;
   const bankId = isCloud ? id! : String(Number(id));
   const { user } = useAuth();
+
+  useEffect(() => {
+    preloadPracticeRoute();
+  }, []);
 
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [practiceOpen, setPracticeOpen] = useState(false);
@@ -116,9 +104,10 @@ export default function BankDetail() {
   }, [searchParams]);
 
   // 云端数据
-  const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(null);
-  const [cloudQuestions, setCloudQuestions] = useState<CloudQuestion[]>([]);
-  const [cloudLoading, setCloudLoading] = useState(false);
+  const initialCloudData = isCloud && id ? getCachedCloudBankData(id, user?.id) : undefined;
+  const [cloudBank, setCloudBank] = useState<CloudBankInfo | null>(() => initialCloudData?.bank || null);
+  const [cloudQuestions, setCloudQuestions] = useState<CloudQuestion[]>(() => initialCloudData?.questions || []);
+  const [cloudLoading, setCloudLoading] = useState(() => isCloud && !initialCloudData);
 
   // 本地数据
   const localBank = useLiveQuery(
@@ -172,23 +161,38 @@ export default function BankDetail() {
   // 拉取云端数据
   useEffect(() => {
     if (!isCloud || !id) return;
+    let cancelled = false;
     setCloudLoading(true);
 
-    Promise.all([
-      supabase.from('question_banks').select('*').eq('id', id).single(),
-      supabase.from('questions').select('*').eq('bank_id', id).order('sort_order', { ascending: true }),
-    ]).then(([bankResult, questionsResult]) => {
-      if (!bankResult.error && bankResult.data) {
-        setCloudBank(bankResult.data as CloudBankInfo);
-      }
-      if (!questionsResult.error && questionsResult.data) {
-        setCloudQuestions(questionsResult.data as CloudQuestion[]);
-      }
+    const applyData = ({ bank: nextBank, questions: nextQuestions }: { bank: CloudBankInfo; questions: CloudQuestion[] }) => {
+      if (cancelled) return;
+      setCloudBank(nextBank);
+      setCloudQuestions(nextQuestions);
+    };
+
+    const cached = getCachedCloudBankData(id, user?.id);
+    if (cached) {
+      applyData(cached);
       setCloudLoading(false);
+      return;
+    }
+
+    setCloudBank(null);
+    setCloudQuestions([]);
+    loadCloudBankData(id, {
+      userId: user?.id,
+      onRevalidated: applyData,
+    }).then((data) => {
+      applyData(data);
+      if (!cancelled) setCloudLoading(false);
     }).catch(() => {
-      setCloudLoading(false);
+      if (!cancelled) setCloudLoading(false);
     });
-  }, [isCloud, id]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCloud, id, user?.id]);
 
   // 云端题库：拉取练习记录用于统计
   const [cloudSessions, setCloudSessions] = useState<CloudSession[]>([]);
@@ -369,10 +373,12 @@ export default function BankDetail() {
   }, [isCloud, id, cloudQuestions]);
 
   const handleCardClick = (type: FilterType) => {
+    preloadPracticeRoute();
     navigate(`/practice/${bankId}?type=${type}`, { state: { type, isCloud } });
   };
 
   const handleStartPractice = () => {
+    preloadPracticeRoute();
     closeModal('practice');
     setRandomCount(0);
 
@@ -390,6 +396,7 @@ export default function BankDetail() {
   };
 
   const handleQuickStart = () => {
+    preloadPracticeRoute();
     navigate(`/practice/${bankId}?type=all`, { state: { type: 'all', isCloud } });
   };
 
@@ -406,6 +413,7 @@ export default function BankDetail() {
 
   // 错题重刷
   const handleWrongPractice = () => {
+    preloadPracticeRoute();
     if (isCloud) {
       // 将云端错题的 sort_order 转为合成负 ID
       const synthIds = cloudWrongQuestions

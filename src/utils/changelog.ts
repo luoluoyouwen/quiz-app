@@ -5,9 +5,22 @@ export interface VersionEntry {
   changes: string[];
 }
 
-export const APP_VERSION = '5.0.0';
+export const APP_VERSION = '5.1.0';
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: '5.1.0',
+    date: '2026-07-16',
+    title: '题库持久缓存与应用内手动更新',
+    changes: [
+      '新增按账号隔离的云端题库持久缓存，重复进入题库详情和刷题页时优先读取 IndexedDB，再在后台校验版本。',
+      '题库内容未变化时只校验内容哈希和题目数量，发生变化后才重新下载完整题目，减少跨区域请求等待。',
+      '首页题库入口支持路由和题库数据预取，题库详情可在后台刷新后同步展示最新内容。',
+      '“我的”页面新增“检查更新”，安装为 PWA 后可立即请求 Service Worker 更新并自动切换到新版本。',
+      '退出登录和清除本地数据时同步清理当前账号的持久题库缓存，避免跨账号复用。',
+      '同步更新 README、使用帮助、开发、交付、状态和生产发布文档。',
+    ],
+  },
   {
     version: '5.0.0',
     date: '2026-07-13',

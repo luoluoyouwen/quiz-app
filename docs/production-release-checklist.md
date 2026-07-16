@@ -1,8 +1,8 @@
-# 刷题 App 5.0 生产发布清单
+# 刷题 App 5.1 生产发布清单
 
-> 目标版本：5.0.0
+> 目标版本：5.1.0
 > 状态：预备部署生产
-> 更新时间：2026-07-13
+> 更新时间：2026-07-16
 
 ## 1. 发布原则
 
@@ -32,11 +32,11 @@ rg -n --hidden "cfat_[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0
 
 ## 3. 版本一致性
 
-- [ ] `package.json` 为 `5.0.0`。
-- [ ] `package-lock.json` 根版本为 `5.0.0`。
-- [ ] `src/utils/changelog.ts` 的 `APP_VERSION` 为 `5.0.0`。
-- [ ] 应用内更新日志首条为 5.0.0。
-- [ ] README、使用帮助、开发文档和交付文档均标记 5.0.0。
+- [ ] `package.json` 为 `5.1.0`。
+- [ ] `package-lock.json` 根版本为 `5.1.0`。
+- [ ] `src/utils/changelog.ts` 的 `APP_VERSION` 为 `5.1.0`。
+- [ ] 应用内更新日志首条为 5.1.0。
+- [ ] README、使用帮助、开发文档和交付文档均标记 5.1.0。
 - [ ] 生产发布后补充实际部署时间和部署 ID。
 
 ## 4. 数据库核对
@@ -92,7 +92,7 @@ git diff --check
 - 构建成功并生成 `dist/`。
 - `git diff --check` 无空白错误。
 
-完整 ESLint warnings 作为技术债记录，不作为 5.0.0 阻断项，但不能新增 error。
+完整 ESLint warnings 作为技术债记录，不作为 5.1.0 阻断项，但不能新增 error。
 
 ## 6. Preview 部署
 
@@ -124,6 +124,7 @@ npx wrangler pages deploy dist --project-name $env:CLOUDFLARE_PAGES_PROJECT --br
 - [ ] 首页题库数和总题数正确。
 - [ ] 本地题库与云端题库可进入。
 - [ ] 缓存云端题库后可断网打开。
+- [ ] 云端题库首次进入后，刷新或重开可优先显示持久缓存并在后台校验版本。
 - [ ] 选择、判断、填空、简答和背题流程正常。
 - [ ] 已掌握和需复习状态正确变化。
 - [ ] 题号弹窗打开后背景不可滚动。
@@ -131,6 +132,7 @@ npx wrangler pages deploy dist --project-name $env:CLOUDFLARE_PAGES_PROJECT --br
 - [ ] 公告只提醒一次，公告中心仍可查看。
 - [ ] 反馈可提交，未回复反馈可删除。
 - [ ] 拍照搜题可加载 OCR、编辑识别文本并搜索。
+- [ ] “我的 → 检查更新”可返回最新版提示，存在新版本时可激活并自动重载。
 - [ ] 手机底部导航和返回逻辑正常。
 
 ### 管理员
@@ -170,8 +172,8 @@ npx wrangler pages deploy dist --project-name $env:CLOUDFLARE_PAGES_PROJECT --br
 ## 9. 生产发布后检查
 
 - [ ] 从受控部署环境读取的生产地址返回 200。
-- [ ] 新登录会话显示 v5.0.0。
-- [ ] 已安装 PWA 能收到更新提示并切换到 5.0.0。
+- [ ] 新登录会话显示 v5.1.0。
+- [ ] 已安装 PWA 能收到自动更新提示，也能通过“我的 → 检查更新”切换到 5.1.0。
 - [ ] Cloudflare Functions 无持续 5xx。
 - [ ] Supabase Auth、Database 和 API 指标无异常。
 - [ ] 公告、反馈和进度写入没有权限错误。

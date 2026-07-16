@@ -8,12 +8,14 @@ import {
   SafetyCertificateOutlined,
   TeamOutlined,
   DeleteOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../db';
 import { APP_VERSION, CHANGELOG } from '../utils/changelog';
 import { useSearchParams } from 'react-router-dom';
 import UserMessageActions from '../components/UserMessageActions';
+import { checkForPwaUpdate } from '../utils/pwaManualUpdate';
 
 const { Title, Text } = Typography;
 
@@ -23,6 +25,7 @@ export default function Profile() {
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const openModal = (modal: 'changelog' | 'help') => {
     setChangelogOpen(modal === 'changelog');
@@ -56,11 +59,39 @@ export default function Profile() {
       await db.sessionAnswers.clear();
       await db.userProgress.clear();
       await db.sessions.clear();
+      await db.cloudBankCache.clear();
+      const { clearCloudBankDataCache } = await import('../lib/cloudBankData');
+      clearCloudBankDataCache();
       message.success('本地数据已清除（云端题库需重新缓存）');
     } catch {
       message.error('清除失败');
     } finally {
       setClearing(false);
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      const status = await checkForPwaUpdate();
+      if (status === 'updating') {
+        message.loading({
+          content: '发现新版本，正在完成更新并重新启动…',
+          key: 'pwa-manual-update',
+          duration: 4,
+        });
+      } else if (status === 'up-to-date') {
+        message.success('当前已是最新版本 v' + APP_VERSION);
+      } else if (status === 'not-registered') {
+        message.info('更新服务尚未就绪，请关闭应用后重新打开再试');
+      } else {
+        message.info('当前浏览器不支持应用内更新检查');
+      }
+    } catch (error) {
+      console.error('Manual PWA update check failed:', error);
+      message.error('检查更新失败，请确认网络连接后重试');
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -96,6 +127,15 @@ export default function Profile() {
 
       <Card className="profile-action-card" size="small">
         <div className="profile-action-list">
+          <Button
+            className="profile-action-button"
+            block
+            icon={<SyncOutlined spin={checkingUpdate} />}
+            loading={checkingUpdate}
+            onClick={handleCheckUpdate}
+          >
+            {checkingUpdate ? '正在检查更新' : '检查更新'}
+          </Button>
           <Button className="profile-action-button" block icon={<InfoCircleOutlined />} onClick={() => openModal('changelog')}>
             更新日志 v{APP_VERSION}
           </Button>
@@ -216,7 +256,7 @@ export default function Profile() {
             <Tag color="magenta" style={{ marginBottom: 4 }}>7</Tag>
             <Text strong>安装、更新与返回</Text>
             <div style={{ marginTop: 4, paddingLeft: 28 }}>
-              <Text type="secondary">浏览器支持时可将应用安装到桌面或主屏幕。有新版本时按页面更新提示刷新；若仍是旧界面，可关闭重开或强制刷新。</Text>
+              <Text type="secondary">浏览器支持时可将应用安装到桌面或主屏幕。可在“我的 → 检查更新”立即拉取最新版本，也可按页面自动更新提示切换。</Text>
               <br />
               <Text type="secondary">移动端底部栏目互相独立，栏目内会逐层返回；系统返回键可优先关闭当前弹窗。</Text>
             </div>

@@ -18,6 +18,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import LandingHero from '../components/LandingHero';
 import { useAuth } from '../contexts/AuthContext';
 import { EMPTY_LEARNING_STATUS, summarizeLatestLearningStatus, type LearningAnswerRecord, type LearningStatus } from '../utils/learningStatus';
+import { prefetchCloudBankData, type CloudBankInfo } from '../lib/cloudBankData';
+import { preloadBankDetailRoute, preloadPracticeRoute } from '../utils/routePreload';
 
 const { Title, Text } = Typography;
 
@@ -52,12 +54,27 @@ function documentBankName(raw: string): string {
   return /\.docx?$/i.test(base) ? base : base + '.docx';
 }
 
-interface CloudBank { id: string; name: string; description: string; question_count: number; created_at: string; created_by: string; review_status?: 'pending' | 'approved' | 'rejected'; }
+interface CloudBank extends CloudBankInfo {
+  created_at: string;
+  created_by: string;
+  review_status?: 'pending' | 'approved' | 'rejected';
+}
 type BankLearningStatus = LearningStatus;
 type BankCardVariant = 'local' | 'cloud' | 'cached';
 
 const LAST_BANK_KEY = 'quiz-app-last-bank-path';
 const EMPTY_STATUS: BankLearningStatus = EMPTY_LEARNING_STATUS;
+function preloadBankDestination(bankId: string | number, userId?: string, bankHint?: CloudBankInfo): void {
+  preloadBankDetailRoute();
+  preloadPracticeRoute();
+  const cloudId = String(bankId);
+  if (cloudId.includes('-')) prefetchCloudBankData(cloudId, { userId, bankHint });
+}
+
+function preloadBankPath(path: string, userId?: string): void {
+  const match = /^\/bank\/([^?]+)/.exec(path);
+  if (match?.[1]) preloadBankDestination(decodeURIComponent(match[1]), userId);
+}
 
 export default function Home() {
   const navigate = useNavigate();
@@ -70,6 +87,11 @@ export default function Home() {
   const [cloudError, setCloudError] = useState(false);
   const [cloudLearningStats, setCloudLearningStats] = useState<Record<string, BankLearningStatus>>({});
   const [cloudLearningLoading, setCloudLearningLoading] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(preloadBankDetailRoute, 200);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const banks = useLiveQuery(() => { if (!user) return []; return db.banks.where('userId').equals(user.id).toArray(); }, [user?.id]);
   const localBanks = useMemo(() => (banks || []).filter(b => !b.description?.startsWith('☁️')), [banks]);
@@ -272,7 +294,10 @@ export default function Home() {
 
   const openRecentBank = () => {
     const path = getRecentBankPath();
-    if (path) navigate(path);
+    if (path) {
+      preloadBankPath(path, user?.id);
+      navigate(path);
+    }
     else document.getElementById('bank-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -283,6 +308,7 @@ export default function Home() {
         return;
       }
       if (wrongBankPath) {
+        preloadBankPath(wrongBankPath, user?.id);
         navigate(wrongBankPath + '?wrong=1');
         return;
       }
@@ -290,6 +316,7 @@ export default function Home() {
       const recentBankId = recentPath.replace('/bank/', '');
       const isCloudRecent = recentPath ? Number.isNaN(Number(recentBankId)) : false;
       if (isCloudRecent) {
+        preloadBankPath(recentPath, user?.id);
         navigate(recentPath + '?wrong=1');
         return;
       }
@@ -302,6 +329,7 @@ export default function Home() {
       message.info('请先上传或选择一个题库');
       return;
     }
+    preloadBankPath(path, user?.id);
     navigate(path + '?' + feature + '=1');
   };
 
@@ -354,6 +382,7 @@ export default function Home() {
     extraTags?: React.ReactNode;
     onOpen: () => void;
     onPractice: () => void;
+    onPreload: () => void;
     onSecondary?: () => void;
     secondaryLabel?: string;
     secondaryIcon?: React.ReactNode;
@@ -365,7 +394,14 @@ export default function Home() {
     const reviewText = args.statusLoading ? '...' : status.review;
     return (
       <Col key={args.key} xs={24} sm={12} md={8} lg={6}>
-        <Card hoverable className={'home-bank-card is-' + args.variant} onClick={args.onOpen}>
+        <Card
+          hoverable
+          className={'home-bank-card is-' + args.variant}
+          onClick={args.onOpen}
+          onPointerEnter={args.onPreload}
+          onPointerDown={args.onPreload}
+          onFocus={args.onPreload}
+        >
           <div className="home-bank-card-inner">
             {renderDocumentPreview({
               variant: args.variant,
@@ -460,8 +496,9 @@ export default function Home() {
                   status: getLearningStatus(bank.id),
                   metaLabel: C.lastPractice,
                   metaValue: formatDate(bank.lastPracticed),
-                  onOpen: () => navigate('/bank/' + bank.id),
-                  onPractice: () => navigate('/practice/' + bank.id),
+                  onOpen: () => { preloadBankDestination(bank.id!, user?.id); navigate('/bank/' + bank.id); },
+                  onPractice: () => { preloadBankDestination(bank.id!, user?.id); navigate('/practice/' + bank.id); },
+                  onPreload: () => preloadBankDestination(bank.id!, user?.id),
                   onSecondary: () => handleOpenImportModal(bank.id),
                   secondaryLabel: '导入',
                   secondaryIcon: <ImportOutlined />,
@@ -483,8 +520,9 @@ export default function Home() {
                 metaLabel: C.uploadTime,
                 metaValue: new Date(bank.created_at).toLocaleDateString('zh-CN'),
                 extraTags: <Space size={4}>{bank.review_status === 'pending' && <Tag color="orange">{C.pending}</Tag>}{bank.review_status === 'rejected' && <Tag color="red">{C.rejected}</Tag>}</Space>,
-                onOpen: () => navigate('/bank/' + bank.id),
-                onPractice: () => navigate('/practice/' + bank.id, { state: { type: 'all', isCloud: true } }),
+                onOpen: () => { preloadBankDestination(bank.id, user?.id, bank); navigate('/bank/' + bank.id); },
+                onPractice: () => { preloadBankDestination(bank.id, user?.id, bank); navigate('/practice/' + bank.id, { state: { type: 'all', isCloud: true } }); },
+                onPreload: () => preloadBankDestination(bank.id, user?.id, bank),
                 onSecondary: () => handleCacheCloudBank(bank, user!.id),
                 secondaryLabel: '缓存',
                 secondaryIcon: <CloudOutlined />,
@@ -506,8 +544,9 @@ export default function Home() {
                       status: getLearningStatus(bank.id),
                       metaLabel: C.status,
                       metaValue: C.cachedDone,
-                      onOpen: () => navigate('/bank/' + cloudUuid),
-                      onPractice: () => navigate('/practice/' + cloudUuid, { state: { isCloud: true } }),
+                      onOpen: () => { preloadBankDestination(cloudUuid, user?.id); navigate('/bank/' + cloudUuid); },
+                      onPractice: () => { preloadBankDestination(cloudUuid, user?.id); navigate('/practice/' + cloudUuid, { state: { isCloud: true } }); },
+                      onPreload: () => preloadBankDestination(cloudUuid, user?.id),
                       onDelete: () => handleDeleteBank(bank),
                     });
                   })}

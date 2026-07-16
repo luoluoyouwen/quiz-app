@@ -148,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await db.sessions.where('userId').equals(user.id).delete();
         await db.sessionAnswers.where('userId').equals(user.id).delete();
         await db.userProgress.where('userId').equals(user.id).delete();
+        const { deletePersistentCloudBankDataCache } = await import('../lib/cloudBankData');
+        await deletePersistentCloudBankDataCache(user.id);
       }
     } catch {
       // 静默 — 清理不是关键路径
